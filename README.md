@@ -220,8 +220,14 @@ its complete updated context. No stale action is forced through. Joining merges
 lanes; leaving splits them. A solo inviter can accept a different invitation,
 withdrawing their own outstanding invitations.
 
-Each remaining player gets four social actions before the council. Fast agents
-can reach that quota without waiting for others. Voting begins only after all
+Each remaining live player gets four speaking or sit-out opportunities before
+the council, plus eight separate setup/group-management actions. Invitations and
+joining no longer consume speaking opportunities. When setup is exhausted, only
+say/pass/leave remain; leaving then uses a discussion opportunity. An agent can
+still choose silence. The default prompt encourages questions, responses and
+voting discussions, without scripting speech. The UI shows messages per council
+and each player’s remaining allowances. Fast agents can use their opportunities
+without waiting for unrelated conversations. Voting begins only after all
 social actions and assessments finish; ballots are private and can be generated
 in parallel. Results are applied atomically as ready, so live order follows actual
 completion, not a fixed global player order. Free scripted walkthroughs retain

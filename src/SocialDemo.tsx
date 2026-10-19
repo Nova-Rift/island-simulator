@@ -103,7 +103,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
  const alone=frame.alive.flatMap((alive,i)=>alive&&!frame.groups.some(g=>g.members.includes(i))?[i]:[])
  return <section className="social-demo" aria-labelledby="social-title">
   <div className="social-heading"><h2 id="social-title">Conversations & a vote</h2><span>{paid?'Local Runpod · paid':'Scripted example · free'}</span></div>
-  <p className="social-intro">Talk, ask to join, or sit it out. Four actions each, then everyone votes. Independent conversations run in parallel; messages within each stay sequential.</p>
+  <p className="social-intro">Talk, ask to join, or sit it out. Live agents get four speaking or sit-out opportunities each, plus a separate setup allowance, before everyone votes. Independent conversations run in parallel; messages within each stay sequential.</p>
   <details className="social-prompt">
    <summary>Starting prompt · editable</summary>
    <label htmlFor="agent-starting-prompt">Instructions shared by all live agents</label>
@@ -122,7 +122,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    <label title="Only changes the pause between turns; does not speed up Runpod inference.">Turn speed <select value={speed} onChange={e=>setSpeed(Number(e.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></label>
    {makeModel&&<label className="social-paid"><input type="checkbox" checked={paid} onChange={e=>{reset(e.target.checked);setPaid(e.target.checked)}}/>Use my local Runpod (paid)</label>}
   </div>
-  <div className="social-state"><strong>{frame.phase==='finished'?`${PEOPLE[frame.winner!]} wins!`:frame.phase==='vote'?`Vote ${frame.cycle}`:`Round ${frame.round}/4 · vote ${frame.cycle} ahead`}</strong><span>{frame.alive.filter(Boolean).length} remain · turn {frame.turn}</span></div>
+  <div className="social-state"><strong>{frame.phase==='finished'?`${PEOPLE[frame.winner!]} wins!`:frame.phase==='vote'?`Vote ${frame.cycle}`:frame.concurrent?`Discussion · vote ${frame.cycle} ahead`:`Round ${frame.round}/4 · vote ${frame.cycle} ahead`}</strong><span>{frame.alive.filter(Boolean).length} remain · turn {frame.turn} · {frame.events.filter(e=>e.cycle===frame.cycle&&e.type==='say').length} messages this council</span></div>
   <p className="social-status" role="status">{busy?`Waiting on ${paid?'Runpod':'simulation'} · ${waitingSeconds}s — `:''}{status}{latest?.source==='fallback'?' (Rule fallback)':''}</p>
   {error&&<p className="conversation-error" role="alert">{error}</p>}
   <div className="social-board">
@@ -147,6 +147,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
   <div className="social-summaries" aria-label="Latest conversation assessments">{PEOPLE.map((name,i)=>{
    const assessment=assessments[i]
    return <article key={name} className={frame.alive[i]?'':'is-out'}><strong>{name}{frame.alive[i]?'':' · voted out'}</strong>
+    {frame.concurrent&&frame.alive[i]&&frame.phase==='social'&&<small>{frame.rounds-frame.discussionCounts[i]} speaking / sit-out opportunities left · {Math.max(0,2*frame.rounds-frame.managementCounts[i])} setup actions left</small>}
     <p>{assessment?.summary||'No conversation assessment yet.'}</p>
     <p className="social-odds">{frame.phase==='finished'&&frame.winner===i?'Winner':!frame.alive[i]?'Eliminated · winning chance 0%':assessment?.winProbability!=null?`Own estimate of winning: ${Math.round(assessment.winProbability*100)}%`:'Winning estimate: unavailable'}</p>
     {assessment&&<small>{assessment.source} · vote {assessment.cycle}, turn {assessment.turn} · conversation {assessment.group}</small>}
@@ -171,7 +172,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    <div className="social-summaries">{PEOPLE.map((name,i)=><article key={name}><strong>{name}{frame.winner===i?' · winner':''}</strong><p>{reviews[i]||reviewErrors[i]||(reviewing?'Waiting for review…':'Not reviewed yet.')}</p></article>)}</div>
    {makeModel&&!reviewing&&Object.keys(reviews).length<PEOPLE.length&&<button onClick={()=>void reviewGame(frame)}>{Object.keys(reviewErrors).length?'Retry missing reviews (paid)':'Generate AI recap (paid)'}</button>}
   </section>}
-  <details className="social-rules"><summary>How it works</summary><p>Invite someone or ask to join. Invitations can be declined; join requests need all current members to agree. Anyone can stay silent or leave. Removing someone requires a majority of the other members and at least two supporters. Excluded agents cannot rejoin that conversation. New members cannot hear earlier messages.</p><p>After four rounds, every remaining agent votes for someone else. Most votes eliminates one; a seeded draw breaks ties. Groups reset after each vote. Last agent standing gets +1; everyone else gets 0. This is a simplified social game, not a model of real human behavior.</p><p><a href="https://github.com/Nova-Rift/island-simulator">Run locally / source</a> · <a href="https://github.com/Nova-Rift/survival-env/blob/browser-environment/browser/SOCIAL.md">Environment API</a>{!makeModel&&<> · <a href="/simulations/">Earlier simulations</a></>}</p></details>
+  <details className="social-rules"><summary>How it works</summary><p>Invite someone or ask to join. Invitations can be declined; join requests need all current members to agree. Anyone can stay silent or leave. Removing someone requires a majority of the other members and at least two supporters. Excluded agents cannot rejoin that conversation. New members cannot hear earlier messages.</p><p>In live play, each agent gets four speaking or sit-out opportunities and up to eight separate setup actions. Invitations, joining and group management do not consume speaking opportunities. Once setup is exhausted, only speaking, sitting out or leaving remain; leaving then uses an opportunity. Voting waits until everyone uses their opportunities and all assessments finish. The scripted walkthrough uses four fixed rounds. Every remaining agent votes for someone else. Most votes eliminates one; a seeded draw breaks ties. Groups reset after each vote. Last agent standing gets +1; everyone else gets 0. This is a simplified social game, not a model of real human behavior.</p><p><a href="https://github.com/Nova-Rift/island-simulator">Run locally / source</a> · <a href="https://github.com/Nova-Rift/survival-env/blob/browser-environment/browser/SOCIAL.md">Environment API</a>{!makeModel&&<> · <a href="/simulations/">Earlier simulations</a></>}</p></details>
  </section>
 }
 
