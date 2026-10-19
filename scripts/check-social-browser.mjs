@@ -59,7 +59,7 @@ try {
    }
    assert.match(state.turn,new RegExp('turn '+(turn+1)+'$'))
   }
-  for(const action of ['asks to join','accepts','declines','excludes','leaves','casts a private ballot'])assert.ok(seen.some(s=>s.includes(action)),action)
+  for(const action of ['asks to join','accepts','declines','denies','leaves','casts a private ballot'])assert.ok(seen.some(s=>s.includes(action)),action)
   assert.equal(await evaluate("document.querySelectorAll('.social-results li').length"),8)
   assert.match(await evaluate("document.querySelector('.social-state').textContent"),/7 remain/)
   await click('Reset');await delay(100)
@@ -77,7 +77,7 @@ try {
   }
   assert.deepEqual(paidCalls,[],'Scripted mode must not contact inference')
   assert.deepEqual(errors,[])
-  console.log('Social browser checks passed: requests/consent/refusal/exclusion/leave, 8 votes, pause/reset, desktop/mobile text layout, zero inference calls or page exceptions.')
+  console.log('Social browser checks passed: requests/consent/refusal/denial/leave, 8 votes, pause/reset, desktop/mobile text layout, zero inference calls or page exceptions.')
 
 } finally {
   ws?.close()

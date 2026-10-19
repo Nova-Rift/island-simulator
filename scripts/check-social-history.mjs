@@ -46,7 +46,7 @@ try {
   const {SocialGame}=await import('../src/social.mjs')
   const {scriptedDecision}=await import('../src/socialPolicy.ts')
   const game=new SocialGame(),actions=[]
-  while(game.turn<12){const action=scriptedDecision(game.observe());actions.push(action);game.step(action)}
+  while(game.turn<20){const action=scriptedDecision(game.observe());actions.push(action);game.step(action)}
   await evaluate(`window.mockActions=${JSON.stringify(actions)};window.fetch=async(url)=>{
     if(url==='/api/island/status')return Response.json({ready:true});
     if(url==='/api/island/dialogue')throw Error('Unconfigured mock');
@@ -63,23 +63,23 @@ try {
   await click('Next turn');await delay(100)
   assert.match(await evaluate('window.lastPrompt'),/CUSTOM_PROMPT_CHECK/)
   assert.match(await evaluate('window.lastPrompt'),/You are Maya/)
-  for(let i=1;i<12;i++){await click('Next turn');await delay(100)}
+  for(let i=1;i<20;i++){await click('Next turn');await delay(100)}
   assert.match(await evaluate("document.querySelector('.social-summaries').textContent"),/Own estimate of winning: 42%/)
-  const chat=await evaluate("({text:document.querySelector('[aria-label=\"Messages in conversation 2\"]').textContent,count:document.querySelectorAll('[aria-label=\"Messages in conversation 2\"] .social-chat-message').length})")
-  assert.equal(chat.count,2)
-  assert.match(chat.text,/Leo, I would like us to support/)
+  const chat=await evaluate("({text:document.querySelector('[aria-label=\"Messages in conversation 1\"]').textContent,count:document.querySelectorAll('[aria-label=\"Messages in conversation 1\"] .social-chat-message').length})")
+  assert.equal(chat.count,3)
+  assert.match(chat.text,/Theo, I would like us to support/)
   assert.match(chat.text,/I’m willing to listen/)
   assert.ok(await evaluate(`Array.from(document.querySelectorAll('.social-chat-message')).every(el=>{const next=el.nextElementSibling;return !next||el.getBoundingClientRect().bottom<=next.getBoundingClientRect().top})`))
 
-  assert.match(await evaluate("document.querySelector('.social-transcript').textContent"),/Leo, I would like us to support/)
+  assert.match(await evaluate("document.querySelector('.social-transcript').textContent"),/Theo, I would like us to support/)
   await evaluate("document.querySelectorAll('.social-history select')[1].value='5';document.querySelectorAll('.social-history select')[1].dispatchEvent(new Event('change',{bubbles:true}))")
-  assert.doesNotMatch(await evaluate("document.querySelector('.social-transcript').textContent"),/Leo, I would like us to support/)
+  assert.doesNotMatch(await evaluate("document.querySelector('.social-transcript').textContent"),/Theo, I would like us to support/)
   await click('Reset');await delay(100)
   assert.doesNotMatch(await evaluate("document.querySelector('.social-summaries').textContent"),/42%/)
   await evaluate("document.querySelector('.social-paid input').click()")
   await delay(100)
   for(let i=0;i<41;i++){await click('Next turn');await delay(30)}
-  assert.match(await evaluate("document.querySelector('.social-transcript').textContent"),/Leo, I would like us to support/)
+  assert.match(await evaluate("document.querySelector('.social-transcript').textContent"),/Theo, I would like us to support/)
   assert.ok(await evaluate("document.querySelector('.social-history select').options.length>4"))
   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true})
   assert.ok(await evaluate('document.documentElement.scrollWidth<=window.innerWidth'))

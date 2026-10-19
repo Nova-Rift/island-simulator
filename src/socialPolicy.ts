@@ -8,7 +8,7 @@ export function parseDecision(text:string,observation:Observation):Action {
  return {type:data.type,target:data.target,group:data.group,text:typeof data.text==='string'?data.text.slice(0,180):undefined,
  intention:typeof data.intention==='string'?data.intention.slice(0,180):undefined,reason:typeof data.reason==='string'?data.reason.slice(0,180):undefined}
 }
-export const DEFAULT_STARTING_PROMPT = 'You are {name} in a fictional social voting game. Last remaining player wins +1; everyone else gets 0. Choose freely: you may stay alone, request entry, decline, leave, be silent or converse. Only use a listed legal action. Invitations need acceptance; join requests need all current members to admit. Exclusion needs a majority of other members and at least two supporters. Only heard messages below are known to you; never invent hidden conversations. Return one compact JSON action with type and its listed target/group (zero-based IDs), plus a brief intention. For say include one short spoken sentence in text. For vote include reason. No other text.'
+export const DEFAULT_STARTING_PROMPT = 'You are {name} in a fictional social voting game. Last remaining player wins +1; everyone else gets 0. Choose freely: you may stay alone, request entry, decline, leave, be silent or converse. Only use a listed legal action. Invitations need acceptance; join requests need all current members to admit. Exclusion needs a majority of other members and at least two supporters. You know only your own group, direct socialHistory notifications, and attributed heard messages. Remember who requested entry, who supported, accepted or denied it, and which group it concerned. Other conversations are private: you may ask people about them if they agree to talk. They may tell the truth, lie, omit details or refuse; treat their reports as unverified claims. You may also disclose, withhold or lie strategically. Mention "conversation N" to share a conversation identifier. Never assume access to hidden transcripts. Return one compact JSON action with type and its listed target/group (zero-based IDs), plus a brief intention. For say include one short spoken sentence in text. For vote include reason. No other text.'
 export function decisionPrompt(observation:Observation,startingPrompt=DEFAULT_STARTING_PROMPT) {
  return [{role:'system' as const,content:startingPrompt.replaceAll('{name}',observation.name)},
  {role:'user' as const,content:JSON.stringify(observation)}]
@@ -16,11 +16,12 @@ export function decisionPrompt(observation:Observation,startingPrompt=DEFAULT_ST
 // Authored walkthrough: invitations, voluntary refusal, a join request, consent,
 // a private exchange, two-person exclusion, leaving, and eventually a vote.
 const example:Action[][]=[
- [{type:'invite',target:1},{type:'join',group:1},{type:'invite',target:3},{type:'join',group:2},{type:'invite',target:5},{type:'decline',group:3},{type:'request',group:1},{type:'request',group:3}],
- [{type:'admit',target:6},{type:'admit',target:6},{type:'say',text:'Leo, I would like us to support each other at the vote.'},{type:'say',text:'I’m willing to listen, but I haven’t decided my vote.'},{type:'admit',target:7},{type:'pass'},{type:'say',text:'Thanks for letting me join. Can we talk about the vote?'},{type:'say',text:'Ava, I’d rather keep this conversation between us.'}],
- [{type:'exclude',target:6},{type:'agree',target:6},{type:'leave'},{type:'leave'},{type:'pass'},{type:'invite',target:2},{type:'pass'},{type:'leave'}],
- [{type:'say',text:'Theo, let’s discuss our votes privately now.'},{type:'say',text:'I’ll hear you out, but my vote is still my choice.'},{type:'join',group:4},{type:'request',group:3},{type:'deny',target:3},{type:'say',text:'Nia, I stayed out earlier. I’m ready to hear your view now.'},{type:'request',group:2},{type:'pass'}],
+ [{type:'invite',target:1},{type:'join',group:1},{type:'invite',target:3},{type:'join',group:2},{type:'invite',target:5},{type:'decline',group:3},{type:'pass'},{type:'pass'}],
+ [{type:'invite',target:6},{type:'say',text:'Maya, can we support each other at the vote?'},{type:'invite',target:7},{type:'say',text:'Nia, I am willing to listen, but my vote is my choice.'},{type:'pass'},{type:'request',group:3},{type:'decline',group:1},{type:'decline',group:2}],
+ [{type:'say',text:'Theo, I would like us to support each other.'},{type:'say',text:'I’m willing to listen, but I haven’t decided my vote.'},{type:'say',text:'Leo, have you heard anything from the other groups?'},{type:'say',text:'No. I only know what we have discussed here.'},{type:'admit',target:5},{type:'say',text:'Ava, thanks for accepting my request.'},{type:'request',group:1},{type:'request',group:2}],
+ [{type:'admit',target:6},{type:'admit',target:6},{type:'deny',target:7},{type:'leave'},{type:'leave'},{type:'pass'},{type:'say',text:'Thanks for accepting me. What would you like to discuss?'},{type:'pass'}],
 ]
+
 export function scriptedDecision(o:Observation):Action {
  if(o.phase==='vote')return {...o.legal[(o.agent*3+o.cycle)%o.legal.length],reason:'Fixed example vote; no model decision.',intention:'Choose a rival to vote out.'}
  const candidate=o.cycle===1?example[o.round-1]?.[o.agent]:undefined
@@ -36,7 +37,7 @@ function intention(a:Action) {
  return intentions[a.type]||'Consider my next social choice.'
 }
 export function summaryPrompt(o:Observation) {
- return [{role:'system' as const,content:`You are ${PEOPLE[o.agent]} in a fictional social voting game. Assess your situation after the latest exchange: allies, threats and your next priority. Use only your personal observation below. Give a subjective probability of being the last remaining winner, from 0 to 1; this is your estimate, not calibrated odds. Return JSON {"summary":"one short sentence assessing your situation", "winProbability":0.25}. Keep summary under 180 characters. No step-by-step reasoning.`},{role:'user' as const,content:JSON.stringify(o)}]
+ return [{role:'system' as const,content:`You are ${PEOPLE[o.agent]} in a fictional social voting game. Assess your situation after the latest exchange: allies, threats and your next priority. Use only your personal observation below. socialHistory is directly observed; another person’s speech is an unverified report that may be false. Give a subjective probability of being the last remaining winner, from 0 to 1; this is your estimate, not calibrated odds. Return JSON {"summary":"one short sentence assessing your situation", "winProbability":0.25}. Keep summary under 180 characters. No step-by-step reasoning.`},{role:'user' as const,content:JSON.stringify(o)}]
 }
 
 export function parseAssessment(text:string):{summary:string;winProbability:number} {

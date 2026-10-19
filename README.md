@@ -153,3 +153,13 @@ prompt while clearing the game; reload restores the default. “Restore default
 prompt” restores the shared built-in instructions. Personal observations are still
 attached separately; assessment prompts and game rules are unchanged. Scripted
 mode does not use the prompt.
+
+### Personal social knowledge
+
+Agents retain structured records of requests and responses: who asked, which
+conversation, who supported or denied entry, acceptance and cancellations. Only
+involved people receive those notifications. Other groups' members and activity
+are absent from model observations. Agents can discover a conversation through
+an invitation or someone mentioning “conversation N” while talking. Such reports
+remain attributed, unverified speech; the default prompt allows asking questions,
+refusing disclosure, telling the truth or lying. The viewer can still see all groups.

@@ -12,7 +12,7 @@ export class SocialGame {
   reset() {
     this.alive=PEOPLE.map(()=>true); this.groups=[]; this.nextGroup=1;
     this.turn=0; this.round=1; this.cycle=1; this.phase='social'; this.cursor=0;
-    this.memories=PEOPLE.map(()=>[]); this.decisions=PEOPLE.map(()=>[]); this.intentions=PEOPLE.map(()=>[]); this.summaries=PEOPLE.map(()=> 'No conversation yet.');
+    this.socialHistory=PEOPLE.map(()=>[]); this.knownGroups=PEOPLE.map(()=>new Set()); this.memories=PEOPLE.map(()=>[]); this.decisions=PEOPLE.map(()=>[]); this.intentions=PEOPLE.map(()=>[]); this.summaries=PEOPLE.map(()=> 'No conversation yet.');
     this.statuses=PEOPLE.map(()=> 'On their own'); this.events=[]; this.ballots=[]; this.councils=[];
     this.winner=null; this.rewards=PEOPLE.map(()=>0);
     return this.frame();
@@ -27,8 +27,9 @@ export class SocialGame {
     return {
       version:SOCIAL_VERSION, agent, name:PEOPLE[agent], cycle:this.cycle, round:this.round, rounds:this.rounds, phase:this.phase,
       remaining:this.remaining.map(id=>({id,name:PEOPLE[id]})),
-      // Membership is visible; outsiders never get conversation contents/proposals.
-      groups:this.groups.map(g=>({id:g.id,members:g.members.slice()})),
+      // Only current own membership is visible; other groups must be encountered or reported.
+      groups:group ? [{id:group.id,members:group.members.slice()}] : [],
+      knownConversations:[...this.knownGroups[agent]], socialHistory:copy(this.socialHistory[agent]),
       invitations:this.groups.filter(g=>g.invited.includes(agent)).map(g=>g.id),
       exclusionProposals:group ? copy(group.proposals) : [],
       joinRequests:group ? copy(group.requests) : [],
@@ -51,9 +52,9 @@ export class SocialGame {
       }
     } else {
       for(const g of this.groups.filter(g=>g.invited.includes(agent)))actions.push({type:'join',group:g.id},{type:'decline',group:g.id});
-      for(const g of this.groups.filter(g=>!g.invited.includes(agent)&&!g.blocked.includes(agent)&&!g.requests.some(r=>r.agent===agent)))actions.push({type:'request',group:g.id});
+      for(const g of this.groups.filter(g=>this.knownGroups[agent].has(g.id)&&!g.invited.includes(agent)&&!g.blocked.includes(agent)&&!g.requests.some(r=>r.agent===agent)))actions.push({type:'request',group:g.id});
     }
-    for(const target of this.remaining.filter(i=>i!==agent && !this.groupOf(i))) {
+    for(const target of this.remaining.filter(i=>i!==agent && !group?.members.includes(i))) {
       if(!group || (!group.invited.includes(target)&&!group.blocked.includes(target)))actions.push({type:'invite',target});
     }
     return actions;
@@ -76,6 +77,7 @@ export class SocialGame {
     if(!['scripted','llm','fallback','agent'].includes(source))throw new RangeError('Unknown action source');
     let group=this.groupOf(actor), audience=[actor], text='', listeners=[];
     const name=PEOPLE[actor], target=chosen.target;
+    const pendingRequests=this.groups.flatMap(g=>g.requests.map(r=>({conversation:g.id,agent:r.agent,members:g.members.slice()})));
     this.turn++;
     this.setSummary(actor,action.intention);
     this.decisions[actor].push({turn:this.turn,cycle:this.cycle,round:this.round,action:{...chosen,...(chosen.type==='say'?{text:brief(action.text)}:{}),...(chosen.type==='vote'?{reason:brief(action.reason)}:{})},source});
@@ -88,20 +90,20 @@ export class SocialGame {
       case 'join':
         group=this.groups.find(g=>g.id===chosen.group);group.members.push(actor);group.proposals=[];group.requests=[];
         for(const g of this.groups){g.invited=g.invited.filter(i=>i!==actor);g.requests=g.requests.filter(r=>r.agent!==actor);}
-        audience=group.members.slice();text=`${name} accepts the invitation.`;this.statuses[actor]='Joined the conversation';break;
+        audience=group.members.slice();text=`${name} accepts the invitation to conversation ${group.id}.`;this.statuses[actor]='Joined the conversation';break;
       case 'request':
         group=this.groups.find(g=>g.id===chosen.group);group.requests.push({agent:actor,yes:[]});
         audience=[actor,...group.members];text=`${name} asks to join conversation ${group.id}.`;this.statuses[actor]='Asked to join';break;
       case 'admit': case 'deny': {
         const request=group.requests.find(r=>r.agent===target);audience=[...group.members,target];
         if(chosen.type==='deny'){
-          group.requests=group.requests.filter(r=>r!==request);text=`${name} declines ${PEOPLE[target]}'s request to join.`;
+          group.requests=group.requests.filter(r=>r!==request);text=`${name} denies ${PEOPLE[target]}'s request to join conversation ${group.id}.`;
         }else{
-          request.yes.push(actor);text=`${name} supports admitting ${PEOPLE[target]}.`;
+          request.yes.push(actor);text=`${name} supports admitting ${PEOPLE[target]} to conversation ${group.id}.`;
           if(group.members.every(id=>request.yes.includes(id))){
             group.members.push(target);group.proposals=[];group.requests=[];
             for(const g of this.groups){g.invited=g.invited.filter(i=>i!==target);g.requests=g.requests.filter(r=>r.agent!==target);}
-            text+=` Everyone agrees; ${PEOPLE[target]} joins.`;this.statuses[target]='Request accepted';
+            text+=` Accepted by ${request.yes.map(id=>PEOPLE[id]).join(', ')}; ${PEOPLE[target]} joins.`;this.statuses[target]='Request accepted';
           }
         }
         this.statuses[actor]='Answered a join request';break;
@@ -131,8 +133,28 @@ export class SocialGame {
         this.ballots.push({voter:actor,target,reason:brief(action.reason)||'No reason given.',source});
         text=`${name} casts a private ballot.`;this.statuses[actor]='Voted';break;
     }
+    if(group)for(const id of audience)this.knownGroups[id].add(group.id);
+    const outcome=chosen.type==='deny'?'denied':chosen.type==='admit'?(group.members.includes(target)?'accepted':'supported'):chosen.type==='join'?'accepted':chosen.type==='decline'?'declined':chosen.type==='request'?'pending':chosen.type;
+    if(['invite','join','request','admit','deny','decline','leave','exclude','agree','reject'].includes(chosen.type)){
+      const record={turn:this.turn,cycle:this.cycle,round:this.round,conversation:group?.id??null,actor,target:target??actor,type:chosen.type,outcome,text,evidence:'direct notification'};
+      for(const id of audience)this.socialHistory[id].push(copy(record));
+    }
+    if(chosen.type==='say'){
+      // Voluntary reports remain attributed speech, never verified social facts.
+      for(const match of text.matchAll(/conversation\s+#?(\d+)/gi))for(const id of audience)this.knownGroups[id].add(Number(match[1]));
+    }
     this.remember(audience,chosen.type==='say'?`${name}: ${text}`:text);
     const event={turn:this.turn,cycle:this.cycle,round:this.round,type:chosen.type,actor,group:group?.id??null,audience:audience.slice(),text,source};
+    for(const request of pendingRequests){
+      const stillPending=this.groups.some(g=>g.id===request.conversation&&g.requests.some(r=>r.agent===request.agent));
+      const resolved=request.conversation===group?.id&&request.agent===target&&['admit','deny'].includes(chosen.type);
+      if(!stillPending&&!resolved){
+        const text=`Request by ${PEOPLE[request.agent]} to conversation ${request.conversation} was cancelled because membership changed; this was not a rejection.`;
+        const recipients=[...new Set([...request.members,request.agent])];
+        this.remember(recipients,text);
+        for(const id of recipients)this.socialHistory[id].push({turn:this.turn,cycle:this.cycle,round:this.round,conversation:request.conversation,actor:null,target:request.agent,type:'cancel',outcome:'cancelled',text,evidence:'direct notification'});
+      }
+    }
     this.events.push(event);
     this.cursor++;
     if(this.cursor>=this.remaining.length){
@@ -147,6 +169,11 @@ export class SocialGame {
     const high=Math.max(...counts.map(c=>c.count)),tied=counts.filter(c=>c.count===high).map(c=>c.id);
     const eliminated=tied[((this.seed>>>0)+this.cycle*53)%tied.length];
     this.councils.push({number:this.cycle,eliminated,tied:tied.length>1,ballots:copy(this.ballots)});
+    for(const group of this.groups)for(const request of group.requests){
+      const text=`Request by ${PEOPLE[request.agent]} to conversation ${group.id} ended when voting closed the conversation; it was not denied.`;
+      const recipients=[...new Set([...group.members,request.agent])];this.remember(recipients,text);
+      for(const id of recipients)this.socialHistory[id].push({turn:this.turn,cycle:this.cycle,round:this.round,conversation:group.id,actor:null,target:request.agent,type:'cancel',outcome:'cancelled',text,evidence:'direct notification'});
+    }
     this.alive[eliminated]=false;this.statuses[eliminated]='Voted out';this.groups=[];this.ballots=[];this.round=1;
     this.remember(this.remaining,`${PEOPLE[eliminated]} was voted out.`);
     if(this.remaining.length===1){this.phase='finished';this.winner=this.remaining[0];this.rewards[this.winner]=1;}
