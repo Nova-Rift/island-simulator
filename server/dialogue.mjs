@@ -1,6 +1,8 @@
 import { createRunpodClient, MODEL, MAX_OUTPUT_TOKENS, MAX_REQUEST_BYTES } from './runpod-client.mjs'
 
 const encoder = new TextEncoder()
+const FAILURE_KEY = 'island-v1/last-failure.json'
+const FAILURE_CODES=new Set(['CONTEXT_LIMIT','INCOMPLETE_RESPONSE','INVALID_JSON','EMPTY_RESPONSE','PROVIDER_REQUEST_REJECTED','PROVIDER_AUTH','PROVIDER_BILLING','PROVIDER_RATE_LIMIT','PROVIDER_NOT_FOUND','PROVIDER_UNAVAILABLE','PROVIDER_TIMEOUT','PROVIDER_NETWORK','PROVIDER_JOB_FAILED','REQUEST_CANCELLED'])
 const BUDGET_KEY = 'island-v1/reservations.json'
 // Granite published pricing: $1 / million tokens, checked 2026-10-19:
 // https://www.runpod.io/pricing . $50 task allowance => 50 million reserved units.
@@ -44,8 +46,9 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
   if (!env.RUNPOD_INFERENCE_KEY || !env.BUCKET) return jsonResponse({ error: 'Conversations are temporarily unavailable.' }, 503)
   if (path === '/api/island/status') {
     if (request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405)
+    const lastFailure=await env.BUCKET.get(FAILURE_KEY)
     const ledger=await env.BUCKET.get(BUDGET_KEY)
-    return jsonResponse({ ready: true, model: MODEL, provider: 'Runpod', allowance:{reservedUnits:ledger?(await ledger.json()).tokens:0,limitUnits:RESERVATION_UNIT_LIMIT,unit:'conservative reservation units, not billed tokens',pricingBasisUsdPerMillionTokens:1,actualSpendUsd:null} })
+    return jsonResponse({ ready: true, model: MODEL, provider: 'Runpod', lastFailure:lastFailure?await lastFailure.json():null, allowance:{reservedUnits:ledger?(await ledger.json()).tokens:0,limitUnits:RESERVATION_UNIT_LIMIT,unit:'conservative reservation units, not billed tokens',pricingBasisUsdPerMillionTokens:1,actualSpendUsd:null} })
   }
   if (path !== '/api/island/dialogue') return jsonResponse({ error: 'Not found' }, 404)
   if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405)
@@ -90,7 +93,12 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
     await env.BUCKET.put(cacheKey, text, { httpMetadata: { contentType: 'text/plain' } })
     return jsonResponse({ text, cached: false })
   } catch(error) {
-    if(error?.code==='CONTEXT_LIMIT')return jsonResponse({error:'The provider could not accept the full personal history. Nothing was discarded.',code:'CONTEXT_LIMIT'},413)
-    return jsonResponse({ error: 'Model response unavailable.',code:['INCOMPLETE_RESPONSE','INVALID_JSON','EMPTY_RESPONSE'].includes(error?.code)?error.code:'PROVIDER_UNAVAILABLE' }, 503)
+    const code=FAILURE_CODES.has(error?.code)?error.code:'PROVIDER_UNAVAILABLE';
+    if(code!=='REQUEST_CANCELLED'){
+      // Diagnostic metadata only: never persist prompts, raw provider bodies or keys.
+      const diagnostic={code,at:new Date().toISOString(),...(Number.isInteger(error?.httpStatus)?{httpStatus:error.httpStatus}:{})};
+      try{await env.BUCKET.put(FAILURE_KEY,JSON.stringify(diagnostic))}catch{}
+    }
+    return jsonResponse({error:code==='CONTEXT_LIMIT'?'The provider could not accept the full personal history. Nothing was discarded.':'Model response unavailable.',code},code==='CONTEXT_LIMIT'?413:503)
   }
 }

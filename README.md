@@ -255,3 +255,14 @@ Speech and decision prompts explicitly name the current accepted conversation
 participants and listener count, derived only from the agent’s own membership.
 One-to-one exchanges address the other person directly. Pending invitees and
 former members are not listeners; the audience is rebuilt for each decision.
+
+### Diagnosing a paused request
+
+`/api/island/status` confirms local configuration, not live provider health. Its
+`lastFailure` records only a timestamp, a safe error category and an HTTP status
+when available. It never stores prompts, credentials or raw provider error bodies.
+The UI distinguishes provider timeouts, authentication/billing restrictions,
+rate limits, failed jobs and local connectivity. HTTP400 is a request rejection,
+not automatically a context overflow. A failure pauses with the game preserved;
+Play retries through the normal reservation guard. No automatic paid retries or
+scripted replacement decisions are introduced.

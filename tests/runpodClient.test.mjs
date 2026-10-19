@@ -35,7 +35,7 @@ test('large history is forwarded intact with truncation disabled; provider rejec
  const content='EARLIEST_MEMORY '+ 'historical context '.repeat(1800)+' LAST_MEMORY';let request
  const client=createRunpodClient({apiKey:'test-secret',fetchImpl:async(_url,options)=>{request=JSON.parse(options.body).input.openai_input;return Response.json({choices:[{message:{content:'ok'},finish_reason:'stop'}]})}})
  await client.generate([{role:'user',content}]);assert.equal(request.messages[0].content,content);assert.equal(request.truncate_prompt_tokens,null)
- const rejected=createRunpodClient({apiKey:'test-secret',fetchImpl:async()=>new Response('sensitive provider body',{status:400})})
+ const rejected=createRunpodClient({apiKey:'test-secret',fetchImpl:async()=>new Response('sensitive provider body',{status:413})})
  await assert.rejects(rejected.generate([{role:'user',content}]),e=>e.code==='CONTEXT_LIMIT'&&!e.message.includes('sensitive'))
 });
 
@@ -52,4 +52,17 @@ test('native Runpod job polling extracts completion and uses eight tokens for nu
  }});
  assert.equal(await client.generate([{role:'user',content:'Choose'}],true,undefined,{type:'integer',enum:[0,1]}),'1');
  assert.equal(calls.length,2);assert.equal(calls[1].url,'https://api.runpod.ai/v2/test/status/test-job');assert.equal(JSON.parse(calls[0].options.body).input.openai_input.max_tokens,8);
+});
+
+test('provider failures keep safe distinct codes instead of collapsing into connection errors',async()=>{
+ for(const [status,code] of [[400,'PROVIDER_REQUEST_REJECTED'],[401,'PROVIDER_AUTH'],[403,'PROVIDER_AUTH'],[402,'PROVIDER_BILLING'],[429,'PROVIDER_RATE_LIMIT'],[404,'PROVIDER_NOT_FOUND'],[503,'PROVIDER_UNAVAILABLE']]){
+  const c=createRunpodClient({apiKey:'secret',fetchImpl:async()=>new Response('private-body',{status})});
+  await assert.rejects(c.generate([{role:'user',content:'test'}]),e=>e.code===code&&e.httpStatus===status&&!e.message.includes('private-body'));
+ }
+ for(const [error,code] of [[new DOMException('private','TimeoutError'),'PROVIDER_TIMEOUT'],[new Error('private network detail'),'PROVIDER_NETWORK']]){
+  const c=createRunpodClient({apiKey:'secret',fetchImpl:async()=>{throw error}});
+  await assert.rejects(c.generate([{role:'user',content:'test'}]),e=>e.code===code&&!e.message.includes('private'));
+ }
+ const c=createRunpodClient({apiKey:'secret',fetchImpl:async()=>Response.json({status:'FAILED',error:'private job error'})});
+ await assert.rejects(c.generate([{role:'user',content:'test'}]),e=>e.code==='PROVIDER_JOB_FAILED'&&!e.message.includes('private'));
 });

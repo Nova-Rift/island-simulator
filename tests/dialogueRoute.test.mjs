@@ -67,7 +67,7 @@ test('budget exhaustion and storage failure fail closed; failures consume their 
 })
 test('over-12KB personal history reaches provider unchanged; context rejection is 413 with no reduced retry',async()=>{
  const settings=env(),long={...data,messages:[data.messages[0],{role:'user',content:'OLDEST '+ 'memory '.repeat(3000)+' NEWEST'}]};let calls=0
- const provider=async(_url,options)=>{calls++;assert.deepEqual(JSON.parse(options.body).input.openai_input.messages,long.messages);return new Response('private provider rejection',{status:400})}
+ const provider=async(_url,options)=>{calls++;assert.deepEqual(JSON.parse(options.body).input.openai_input.messages,long.messages);return new Response('private provider rejection',{status:413})}
  const response=await dialogueRoute(request(long),settings,provider);assert.equal(response.status,413);assert.equal((await response.json()).code,'CONTEXT_LIMIT');assert.equal(calls,1)
 });
 
@@ -104,4 +104,14 @@ test('status reports reservation units without pretending to measure billing',as
  assert.equal(allowance.reservedUnits,4991662);assert.equal(allowance.limitUnits,50000000);
  assert.equal(allowance.pricingBasisUsdPerMillionTokens,1);assert.equal(allowance.actualSpendUsd,null);
  assert.match(allowance.unit,/not billed tokens/);
+});
+
+test('safe failure diagnostics survive and status exposes no prompt, key or provider body',async()=>{
+ const settings=env();
+ const response=await dialogueRoute(request(),settings,async()=>new Response('PRIVATE_PROVIDER_BODY',{status:429}));
+ assert.equal((await response.json()).code,'PROVIDER_RATE_LIMIT');
+ const status=await dialogueRoute(new Request('https://example.com/api/island/status'),settings);
+ const body=await status.json();assert.equal(body.lastFailure.code,'PROVIDER_RATE_LIMIT');assert.equal(body.lastFailure.httpStatus,429);
+ assert.ok(Date.parse(body.lastFailure.at));
+ const record=JSON.stringify(body);for(const secret of ['PRIVATE_PROVIDER_BODY','secret-not-for-browser','Maya asks'])assert.ok(!record.includes(secret));
 });

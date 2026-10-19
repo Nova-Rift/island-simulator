@@ -13,6 +13,9 @@ export class ServerLanguageModel implements IslandLanguageModel {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages, json, ...(schema?{schema}:{}) }), credentials: 'same-origin',
       signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(125000)]),
+    }).catch(error=>{
+      if(this.controller.signal.aborted)throw error
+      throw Object.assign(new Error('Local model connection failed'),{code:error?.name==='TimeoutError'?'PROVIDER_TIMEOUT':'LOCAL_CONNECTION'})
     })
     if (!response.ok) {
       const data=await response.json().catch(()=>({})) as {code?:string}

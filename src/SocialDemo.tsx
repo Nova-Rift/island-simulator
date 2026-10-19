@@ -200,6 +200,16 @@ function ConversationChat({events,group}:{events:Event[];group:number}) {
 function modelFailureMessage(code?:string){
  const messages:Record<string,string>={
   BUDGET_LIMIT:'Paused: the local conservative reservation limit is reached. This counts prompt bytes and output allowances, not actual billed tokens or dollars. Check Runpod billing before increasing the allowance. No rule fallback was used.',
+  PROVIDER_TIMEOUT:'Paused: Runpod did not finish the request within two minutes. Your game is kept. Press Play to try again.',
+  PROVIDER_AUTH:'Paused: Runpod rejected the local API key or its permissions. The local server is reachable.',
+  PROVIDER_BILLING:'Paused: Runpod returned a billing restriction. Check Runpod billing.',
+  PROVIDER_RATE_LIMIT:'Paused: Runpod is rate-limiting requests. Your game is kept. Wait briefly, then press Play.',
+  PROVIDER_NETWORK:'Paused: the local server could not reach Runpod. Your game is kept. Press Play to try again.',
+  PROVIDER_UNAVAILABLE:'Paused: Runpod or the local request service returned an error. Your game is kept. Press Play to try again.',
+  PROVIDER_JOB_FAILED:'Paused: Runpod reported that its model job failed. Your game is kept. Press Play to try again.',
+  PROVIDER_NOT_FOUND:'Paused: Runpod could not find the endpoint or job result. Your game is kept.',
+  PROVIDER_REQUEST_REJECTED:'Paused: Runpod rejected the request parameters. Your game is kept; no history was removed.',
+  LOCAL_CONNECTION:'Paused: the browser could not reach the local simulator server. Your game is kept.',
   RATE_LIMIT:'Paused: too many requests this minute. Wait, then press Play to retry this turn.',
   CONTEXT_LIMIT:'Full personal history could not be accepted. Paused without removing memories. A larger-context model is needed to continue if the model limit was reached.',
   INVALID_ACTION:'Paused: the model chose an illegal action or returned an invalid decision. No rule fallback was used.',
