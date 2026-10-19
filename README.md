@@ -183,3 +183,8 @@ or illegal decisions, incomplete responses and provider failures. The reservatio
 ledger is NOT billed-token usage: it charges prompt UTF-8 bytes plus overhead and
 maximum output, without refunding failed requests. It can stop much earlier than
 the nominal dollar estimate implies; use Runpod billing for actual charges.
+
+An invalid model decision gets one corrective model request with the complete
+personal observation and exact legal choices. A second invalid choice pauses with
+its rejected action and legal alternatives; it never becomes a rule fallback.
+This extra request uses the same local budget. Service/budget failures are not retried.

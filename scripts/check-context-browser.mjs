@@ -62,7 +62,7 @@ try {
   assert.match(await evaluate("document.querySelector('.social-state').textContent"),/turn 0$/)
   await evaluate(`window.fetch=async(url)=>url==='/api/island/status'?Response.json({ready:true}):Response.json({text:'{"type":"say","text":"illegal while alone"}'})`)
   await click('Next turn');await delay(100)
-  assert.match(await evaluate("document.querySelector('[role=alert]').textContent"),/illegal action/)
+  assert.match(await evaluate("document.querySelector('[role=alert]').textContent"),/not currently allowed/)
   assert.match(await evaluate("document.querySelector('.social-state').textContent"),/turn 0$/)
   assert.deepEqual(errors,[]);console.log('Context rejection pauses without advancing, losing intention, retrying, or supplying fallback actions.')
 

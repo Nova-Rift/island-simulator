@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { PEOPLE, SocialGame } from './social.mjs'
 import type { Action, SocialFrame, Event } from './social.mjs'
-import { decisionPrompt, parseDecision, scriptedDecision, summaryPrompt, parseAssessment, DEFAULT_STARTING_PROMPT, gameReviewPrompt } from './socialPolicy'
+import { scriptedDecision, summaryPrompt, parseAssessment, DEFAULT_STARTING_PROMPT, gameReviewPrompt, chooseModelDecision } from './socialPolicy'
 import type { SocialModel } from './socialPolicy'
 import './social.css'
 
@@ -53,7 +53,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    setStatus(`${PEOPLE[actor]} is ${g.phase==='vote'?'choosing a vote':'deciding what to do'}…`)
    let action:Action,source='scripted'
    if(paid){
-    try{action=parseDecision(await model.current!.generate(decisionPrompt(observation,startingPrompt),true),observation);source='llm'}
+    try{action=await chooseModelDecision(model.current!,observation,startingPrompt,()=>{if(active())setStatus(`${PEOPLE[actor]} is correcting an invalid choice…`)});source='llm'}
     catch(e){if(!active())return;throw Object.assign(e instanceof Error?e:new Error('Invalid decision'),{code:(e as {code?:string})?.code||'INVALID_ACTION'})}
    }else action=scriptedDecision(observation)
    if(!active())return
@@ -75,7 +75,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
     setFrame(g.frame())
    }
    if(g.done){pause();if(paid)await reviewGame(g.frame())}
-  }catch(e){if(active()){pause();model.current?.dispose();model.current=null;setError(modelFailureMessage((e as {code?:string})?.code))}}
+  }catch(e){if(active()){pause();model.current?.dispose();model.current=null;setError((e as {code?:string})?.code==='INVALID_ACTION'?`Paused: ${e instanceof Error?e.message:'Invalid decision.'} No rule fallback was used.`:modelFailureMessage((e as {code?:string})?.code))}}
   finally{if(active())setBusy(false)}
  }
  useEffect(()=>{

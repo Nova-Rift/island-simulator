@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {SocialGame} from '../src/social.mjs';
-import {scriptedDecision,decisionPrompt,summaryPrompt,parseDecision,parseAssessment,gameReviewPrompt} from '../src/socialPolicy.ts';
+import {scriptedDecision,decisionPrompt,summaryPrompt,parseDecision,parseAssessment,gameReviewPrompt,chooseModelDecision} from '../src/socialPolicy.ts';
 test('scripted walkthrough shows voluntary refusal, requests, consent, speech and leave before voting',()=>{
  const g=new SocialGame();const events=[];
  while(g.cycle===1&&!g.done){const o=g.observe();events.push(g.step(scriptedDecision(o)).event);}
@@ -52,4 +52,15 @@ test('irrelevant model fields do not invalidate a legal choice or reach the engi
  const join={...o,legal:[{type:'join',group:3}]};
  assert.equal(parseDecision('{"type":"join","group":3,"target":0}',join).target,undefined);
  assert.throws(()=>parseDecision('{"type":"join","group":4}',join));
+});
+
+test('one corrective model request keeps all personal context and never replaces a choice with rules',async()=>{
+ const o=new SocialGame().observe();let calls=[];
+ const model={generate:async messages=>{calls.push(messages);return calls.length===1?'Configuration error':JSON.stringify({type:'invite',target:1})}};
+ const action=await chooseModelDecision(model,o);assert.equal(action.target,1);assert.equal(calls.length,2);
+ const repaired=JSON.parse(calls[1][1].content);const {correction,...personal}=repaired;assert.deepEqual(personal,o);assert.equal(correction.rejectedReply,'Configuration error');
+ calls=[];model.generate=async messages=>{calls.push(messages);return '{"type":"invite","target":0}'};
+ await assert.rejects(chooseModelDecision(model,o),/correction also failed/);assert.equal(calls.length,2);
+ calls=[];model.generate=async messages=>{calls.push(messages);throw Object.assign(Error('budget'),{code:'BUDGET_LIMIT'})};
+ await assert.rejects(chooseModelDecision(model,o),e=>e.code==='BUDGET_LIMIT');assert.equal(calls.length,1);
 });
