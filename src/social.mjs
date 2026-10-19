@@ -19,15 +19,18 @@ export class SocialGame {
     return this.frame();
   }
   get remaining() { return this.alive.flatMap((v,i)=>v?[i]:[]); }
+  get voters() { return this.remaining.length===3 ? this.alive.flatMap((v,i)=>v?[]:[i]) : this.remaining; }
   get done() { return this.phase==='finished'; }
-  get current() { return this.done ? null : this.concurrent ? (this.remaining.find(id=>this.phase==='vote'?!this.ballots.some(b=>b.voter===id):true)??null) : this.remaining[this.cursor]; }
+  get current() { return this.done ? null : this.concurrent ? ((this.phase==='vote'?this.voters:this.remaining).find(id=>this.phase==='vote'?!this.ballots.some(b=>b.voter===id):true)??null) : (this.phase==='vote'?this.voters:this.remaining)[this.cursor]; }
   groupOf(agent) { return this.groups.find(g=>g.members.includes(agent)); }
   observe(agent=this.current) {
-    if (!Number.isInteger(agent) || !this.alive[agent]) throw new RangeError('Inactive agent');
+    if (!Number.isInteger(agent) || (!this.alive[agent] && !(this.phase==='vote'&&this.voters.includes(agent)))) throw new RangeError('Inactive agent');
     const group=this.groupOf(agent);
     return {
       version:SOCIAL_VERSION, agent, name:PEOPLE[agent], cycle:this.cycle, round:this.concurrent&&this.phase==='social'?Math.min(this.rounds,this.discussionCounts[agent]+1):this.round, rounds:this.rounds, phase:this.phase,
       ...(this.concurrent?{voteClock:{secondsRemaining:Math.ceil(this.discussionRemainingMs/1000),discussionSeconds:this.discussionSeconds,rule:'You may act throughout discussion. Passing means waiting briefly, not opting out. When the shared active-play clock reaches zero, pending replies finish and everyone votes.'}}:{}),
+      votePurpose:this.remaining.length===3?'choose_winner':'eliminate',
+      votingRule:this.remaining.length===3?'The five eliminated players form the jury. Each votes for one of the final three to WIN. Finalists do not vote. Use only your own retained memories; other private conversations remain hidden.':'Vote to eliminate another remaining player.',
       remaining:this.remaining.map(id=>({id,name:PEOPLE[id]})),
       // Only current own membership is visible; other groups must be encountered or reported.
       groups:group && group.members.length>1 ? [{id:group.id,members:group.members.slice()}] : [],
@@ -37,11 +40,13 @@ export class SocialGame {
       exclusionProposals:group ? copy(group.proposals) : [],
       joinRequests:group ? copy(group.requests) : [],
       heard:copy(this.memories[agent]), ownDecisions:copy(this.decisions[agent]), intentions:copy(this.intentions[agent]), intention:this.summaries[agent],
-      eliminated:this.councils.map(c=>c.eliminated), legal:this.legalActions(agent),
+      eliminated:this.councils.filter(c=>c.eliminated!==null).map(c=>c.eliminated), legal:this.legalActions(agent),
     };
   }
   legalActions(agent=this.current) {
-    if (!this.alive[agent] || this.done) return [];
+    if(this.done)return [];
+    if(this.phase==='vote'&&this.remaining.length===3)return this.voters.includes(agent)&&!this.ballots.some(b=>b.voter===agent)?this.remaining.map(target=>({type:'vote',target})):[];
+    if (!this.alive[agent]) return [];
     if(this.concurrent&&this.phase==='vote'&&this.ballots.some(b=>b.voter===agent))return [];
     if (this.phase==='vote') return this.remaining.filter(i=>i!==agent).map(target=>({type:'vote',target}));
     const actions=[{type:'pass'}], group=this.groupOf(agent);
@@ -179,10 +184,10 @@ export class SocialGame {
         else this.managementCounts[actor]++;
         this.round=Math.min(this.rounds,Math.min(...this.remaining.map(id=>this.discussionCounts[id]))+1);
 
-      }else if(this.ballots.length===this.remaining.length)this.finishVote();
+      }else if(this.ballots.length===this.voters.length)this.finishVote();
     }else{
       this.cursor++;
-      if(this.cursor>=this.remaining.length){
+      if(this.cursor>=(this.phase==='vote'?this.voters:this.remaining).length){
         this.cursor=0;
         if(this.phase==='social') {if(this.round===this.rounds)this.phase='vote';else this.round++;}
         else this.finishVote();
@@ -197,6 +202,13 @@ export class SocialGame {
   finishVote() {
     const counts=this.remaining.map(id=>({id,count:this.ballots.filter(v=>v.target===id).length}));
     const high=Math.max(...counts.map(c=>c.count)),tied=counts.filter(c=>c.count===high).map(c=>c.id);
+    if(this.remaining.length===3){
+      this.winner=tied[((this.seed>>>0)+this.cycle*53)%tied.length];this.rewards[this.winner]=1;
+      this.councils.push({number:this.cycle,kind:'jury',winner:this.winner,eliminated:null,tied:tied.length>1,ballots:copy(this.ballots)});
+      this.phase='finished';this.groups=[];this.ballots=[];
+      for(const id of this.remaining)this.statuses[id]=id===this.winner?'Winner':'Finalist';
+      this.remember(PEOPLE.map((_,id)=>id),`${PEOPLE[this.winner]} won the jury vote.`);return;
+    }
     const eliminated=tied[((this.seed>>>0)+this.cycle*53)%tied.length];
     this.councils.push({number:this.cycle,eliminated,tied:tied.length>1,ballots:copy(this.ballots)});
     for(const group of this.groups)for(const request of group.requests){

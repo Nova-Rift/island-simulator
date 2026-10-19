@@ -16,7 +16,7 @@ export function parseDecision(text:string,observation:Observation):Action {
  return {...chosen,text:chosen.type==='say'?data.text!.trim().slice(0,180):undefined,
  intention:typeof data.intention==='string'?data.intention.slice(0,180):undefined,reason:chosen.type==='vote'&&typeof data.reason==='string'?data.reason.slice(0,180):undefined}
 }
-export const DEFAULT_STARTING_PROMPT = 'You are {name} in a fictional social voting game. Last remaining player wins +1; everyone else gets 0. Choose freely: you may stay alone, request entry, decline, leave, be silent or converse. Invitations and joining do not communicate strategy. To learn who to trust and influence votes, use say to ask questions, respond to what others said, discuss alliances and voting intentions. When you want to talk and already have an invitation, prefer accepting it over sending competing invitations. Once in a conversation, start or reply with say instead of collecting more invitations; silence is still your choice. Read voteClock.secondsRemaining to know how long until voting. You may choose any legal action throughout that time; there is no personal action quota. Pass means wait briefly and reconsider, and new invitations can prompt an earlier decision. As voting approaches, use what you have learned to decide whom to vote out. Base your vote on your own interactions and state uncertainty when evidence is scarce. Only use a listed legal action. Invitations need acceptance; join requests need all current members to admit. Exclusion needs a majority of other members and at least two supporters. You know only your own group, direct socialHistory notifications, and attributed heard messages. Remember who requested entry, who supported, accepted or denied it, and which group it concerned. Other conversations are private: you may ask people about them if they agree to talk. They may tell the truth, lie, omit details or refuse; treat their reports as unverified claims. You may also disclose, withhold or lie strategically. Mention "conversation N" to share a conversation identifier. Never assume access to hidden transcripts. Return one compact JSON action with type and its listed target/group (zero-based IDs), plus a brief intention. For say include one short spoken sentence in text. For vote include reason. No other text.'
+export const DEFAULT_STARTING_PROMPT = 'You are {name} in a fictional social voting game. At three finalists, all five eliminated players vote for who should win. Finalists do not vote. The jury winner wins +1; everyone else gets 0. Choose freely: you may stay alone, request entry, decline, leave, be silent or converse. Invitations and joining do not communicate strategy. To learn who to trust and influence votes, use say to ask questions, respond to what others said, discuss alliances and voting intentions. When you want to talk and already have an invitation, prefer accepting it over sending competing invitations. Once in a conversation, start or reply with say instead of collecting more invitations; silence is still your choice. Read voteClock.secondsRemaining to know how long until voting. You may choose any legal action throughout that time; there is no personal action quota. Pass means wait briefly and reconsider, and new invitations can prompt an earlier decision. As voting approaches, use what you have learned to decide whom to vote out. Base your vote on your own interactions and state uncertainty when evidence is scarce. Only use a listed legal action. Invitations need acceptance; join requests need all current members to admit. Exclusion needs a majority of other members and at least two supporters. You know only your own group, direct socialHistory notifications, and attributed heard messages. Remember who requested entry, who supported, accepted or denied it, and which group it concerned. Other conversations are private: you may ask people about them if they agree to talk. They may tell the truth, lie, omit details or refuse; treat their reports as unverified claims. You may also disclose, withhold or lie strategically. Mention "conversation N" to share a conversation identifier. Never assume access to hidden transcripts. Return one compact JSON action with type and its listed target/group (zero-based IDs), plus a brief intention. For say include one short spoken sentence in text. For vote include reason. No other text.'
 // Derive the audience only from this agent's current private membership.
 function audienceInstruction(o:Observation):string {
  const group=o.groups.find(g=>g.members.includes(o.agent))
@@ -39,7 +39,7 @@ const example:Action[][]=[
 ]
 
 export function scriptedDecision(o:Observation):Action {
- if(o.phase==='vote')return {...o.legal[(o.agent*3+o.cycle)%o.legal.length],reason:'Fixed example vote; no model decision.',intention:'Choose a rival to vote out.'}
+ if(o.phase==='vote')return {...o.legal[(o.agent*3+o.cycle)%o.legal.length],reason:'Fixed example vote; no model decision.',intention:o.votePurpose==='choose_winner'?'Choose a finalist to win.':'Choose a rival to vote out.'}
  const candidate=o.cycle===1?example[o.round-1]?.[o.agent]:undefined
  if(candidate && o.legal.some(a=>same(a,candidate)))return {...candidate,intention:intention(candidate)}
  if(o.cycle===1)return {type:'pass',intention:'Stay out of this exchange.'}
@@ -53,7 +53,7 @@ function intention(a:Action) {
  return intentions[a.type]||'Consider my next social choice.'
 }
 export function summaryPrompt(o:Observation) {
- return [{role:'system' as const,content:`You are ${PEOPLE[o.agent]} in a fictional social voting game. Assess your situation after the latest exchange: allies, threats and your next priority. Use only your personal observation below. socialHistory is directly observed; another person’s speech is an unverified report that may be false. Give a subjective probability of being the last remaining winner, from 0 to 1; this is your estimate, not calibrated odds. Return JSON {"summary":"one short sentence assessing your situation", "winProbability":0.25}. Keep summary under 180 characters. No step-by-step reasoning.`},{role:'user' as const,content:JSON.stringify(o)}]
+ return [{role:'system' as const,content:`You are ${PEOPLE[o.agent]} in a fictional social voting game. Assess your situation after the latest exchange: allies, threats and your next priority. Use only your personal observation below. socialHistory is directly observed; another person’s speech is an unverified report that may be false. Give a subjective probability of winning the final jury vote, from 0 to 1; this is your estimate, not calibrated odds. Return JSON {"summary":"one short sentence assessing your situation", "winProbability":0.25}. Keep summary under 180 characters. No step-by-step reasoning.`},{role:'user' as const,content:JSON.stringify(o)}]
 }
 
 export function parseAssessment(text:string):{summary:string;winProbability:number} {
@@ -72,6 +72,7 @@ export async function chooseModelDecision(model:SocialModel,observation:Observat
  const choices=observation.legal.map((action,choice)=>({choice,action}))
  const schema={type:'integer',enum:choices.map(c=>c.choice)}
  const messages=decisionPrompt(observation,startingPrompt)
+ messages[0].content+=' '+(observation.votingRule||'')
  messages[0].content+=' Output format for action selection: return ONLY the integer choice number from choices, without an object, text, or explanation. The number maps to the complete legal action.'
  messages[1].content=JSON.stringify({...observation,choices})
  const raw=await model.generate(messages,true,schema)
@@ -80,13 +81,13 @@ export async function chooseModelDecision(model:SocialModel,observation:Observat
  if(!Number.isInteger(choice)||choice<0||choice>=choices.length)throw Object.assign(Error('The provider did not return a valid constrained choice.'),{code:'INVALID_ACTION'})
  const action=choices[choice].action
  if(action.type!=='say'&&action.type!=='vote')return {...action}
- const instruction=action.type==='say'?'Write one short spoken sentence to your current conversation. Return JSON {"text":"spoken sentence"}.':'Briefly explain your chosen vote. Return JSON {"reason":"short explanation"}.'
+ const instruction=action.type==='say'?'Write one short spoken sentence to your current conversation. Return JSON {"text":"spoken sentence"}.':(observation.votePurpose==='choose_winner'?'Explain why your chosen finalist should WIN. ':'Explain why your chosen player should be eliminated. ')+'Return JSON {"reason":"short explanation"}.'
  const wording=JSON.parse(await model.generate([{role:'system',content:startingPrompt.replaceAll('{name}',observation.name)+' Your action has already been selected. Do not select a different action. '+instruction+(action.type==='say'?audienceInstruction(observation):'')},{role:'user',content:JSON.stringify({...observation,selectedAction:action})}],true))
  return parseDecision(JSON.stringify({...action,text:wording.text,reason:wording.reason}),observation)
 }
 
 export function rankingPrompt(frame:SocialFrame) {
- return [{role:'system' as const,content:'You are an outside observer predicting elimination order in an ongoing fictional social voting game. Use only the supplied snapshot: conversations, relationships, recorded votes and uncertainty. Speech may be deceptive. Predict the order in which the remaining players will leave: next voted out first, predicted winner last. Include each remaining player ID exactly once and no eliminated players. This is a speculative forecast, not a confirmed outcome or calibrated probability. Return only JSON {"order":[player IDs in predicted elimination order]}. No explanation or other fields.'},
+ return [{role:'system' as const,content:'You are an outside observer predicting elimination order in an ongoing fictional social voting game. Use only the supplied snapshot: conversations, relationships, recorded votes and uncertainty. Speech may be deceptive. Forecast final standings: earlier eliminations first, then the two losing finalists, then the predicted jury winner last. At three finalists, all eliminated players vote for the winner; finalists do not vote. Include each remaining player ID exactly once and no eliminated players. This is a speculative forecast, not a confirmed outcome or calibrated probability. Return only JSON {"order":[player IDs in predicted elimination order]}. No explanation or other fields.'},
  {role:'user' as const,content:JSON.stringify({remaining:frame.alive.flatMap((alive,id)=>alive?[{id,name:PEOPLE[id]}]:[]),game:frame})}]
 }
 export function parseRanking(text:string,frame:SocialFrame):number[] {
@@ -95,10 +96,10 @@ export function parseRanking(text:string,frame:SocialFrame):number[] {
  return order
 }
 export function reviewStandings(frame:SocialFrame,prediction:number[]|null) {
- const eliminated=frame.councils.map((c,index)=>({id:c.eliminated,place:PEOPLE.length-index,label:`Confirmed · voted out at vote ${c.number}`}))
- if(frame.phase==='finished'&&frame.winner!==null)return [{id:frame.winner,place:1,label:'Confirmed winner'},...eliminated.reverse()]
+ const eliminated=frame.councils.filter(c=>c.eliminated!==null).map((c,index)=>({id:c.eliminated!,place:PEOPLE.length-index,label:`Confirmed · voted out at vote ${c.number}`}))
+ if(frame.phase==='finished'&&frame.winner!==null)return [{id:frame.winner,place:1,label:'Confirmed winner'},...frame.alive.flatMap((alive,id)=>alive&&id!==frame.winner?[{id,place:2,label:'Confirmed finalist · joint runner-up'}]:[]),...eliminated.reverse()]
  if(!prediction)return [...frame.alive.flatMap((alive,id)=>alive?[{id,place:null,label:'Still playing · prediction unavailable'}]:[]),...eliminated.reverse()]
  // Facts always come from the engine. The model ranks remaining players only.
- const living=prediction.map((id,index)=>({id,place:prediction.length-index,label:index===prediction.length-1?'Predicted winner':`Predicted · out at vote ${frame.councils.length+index+1}`}))
+ const living=prediction.map((id,index)=>({id,place:prediction.length-index,label:index===prediction.length-1?'Predicted winner':index>=prediction.length-3?'Predicted finalist':`Predicted · out at vote ${frame.councils.length+index+1}`}))
  return [...living.reverse(),...eliminated.reverse()]
 }

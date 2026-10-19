@@ -18,7 +18,7 @@ test('model prompts contain only the observation; outsiders never receive privat
 });
 test('full scripted game ends reproducibly with one winner and no network',()=>{
  const run=()=>{const g=new SocialGame();while(!g.done)g.step(scriptedDecision(g.observe()));return g.frame()};
- const a=run();assert.deepEqual(a,run());assert.equal(a.councils.length,7);assert.equal(a.rewards.reduce((x,y)=>x+y),1);
+ const a=run();assert.deepEqual(a,run());assert.equal(a.councils.length,6);assert.equal(a.rewards.reduce((x,y)=>x+y),1);
 });
 test('decision and summary prompts preserve the earliest events and all private records past both old windows',()=>{
  const o=new SocialGame().observe();o.heard=Array.from({length:50},(_,i)=>({turn:i,text:`PERSONAL_MEMORY_${i}`}));o.ownDecisions=[{turn:1,action:{type:'vote',target:7,reason:'old private vote'}}];o.intentions=[{turn:1,text:'old intention'}]
@@ -38,7 +38,7 @@ test('viewer recap supports snapshots without inventing outcomes or entering age
  while(!g.done)g.step(scriptedDecision(g.observe()));
  const frame=g.frame(),payload=JSON.parse(gameReviewPrompt(frame,3)[1].content);
  assert.deepEqual(payload.game,frame);assert.equal(payload.player,3);
- assert.equal(payload.game.councils.length,7);assert.ok(payload.game.events.length>100);
+ assert.equal(payload.game.councils.length,6);assert.ok(payload.game.events.length>100);
 });
 
 test('irrelevant model fields do not invalidate a legal choice or reach the engine',()=>{
@@ -94,5 +94,5 @@ test('rankings combine immutable vote outcomes with a validated prediction for s
  assert.match(rankingPrompt(frame)[0].content,/speculative forecast/);
  while(!g.done)g.step(scriptedDecision(g.observe()));
  const final=reviewStandings(g.frame(),null);assert.equal(final[0].id,g.winner);assert.equal(final[0].label,'Confirmed winner');
- assert.deepEqual(final.map(r=>r.place),[1,2,3,4,5,6,7,8]);
+ assert.deepEqual(final.map(r=>r.place),[1,2,2,4,5,6,7,8]);
 });

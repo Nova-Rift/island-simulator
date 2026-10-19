@@ -318,3 +318,9 @@ limit stays below Astra's long-context pricing threshold.
 See [Astra model documentation](https://developers.openai.com/api/docs/models/gpt-6-astra)
 for current prices and access. This change adds no paid inference to the public
 website. Clones contain no account credentials.
+
+The game now ends with a final-three jury vote: all five eliminated agents vote
+for the winner, using their retained private histories. Finalists do not vote.
+A seeded tie-break resolves tied winner ballots; only the winner earns +1.
+The two other finalists share runner-up status. Start a new game after reloading
+to use the updated rules.

@@ -26,7 +26,7 @@ test('new personal notifications invalidate only the affected pending decision',
 test('shared deadlines still enforce mandatory voting and one winner',async()=>{
  const g=new SocialGame({concurrent:true,discussionSeconds:1});let runner,now=0;
  await new Promise((resolve,reject)=>{runner=new SocialRunner({game:g,now:()=>now,waitMs:0,onEvent:()=>{now+=250;runner.tick()},decide:async o=>o.phase==='vote'?o.legal[0]:{type:'pass'},onDone:resolve,onError:reject});runner.start()});
- assert.equal(g.councils.length,7);assert.ok(g.turn>=35);assert.equal(g.remaining.length,1);runner.stop();
+ assert.equal(g.councils.length,6);assert.ok(g.turn>=35);assert.equal(g.remaining.length,3);runner.stop();
 });
 
 test('waiting agents wake on invitations and their clock does not invalidate pending decisions',async()=>{

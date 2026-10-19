@@ -23,7 +23,7 @@ export class SocialRunner {
     if(g.done){if(!this.jobs.size&&!this.finished){this.finished=true;this.pause();this.onDone(g.frame())}return}
     // Voting starts after every last social exchange and its assessments finish.
     if(g.phase==='vote'&&[...this.jobs.values()].some(j=>j.phase==='social'))return;
-    const candidates=g.remaining.filter(id=>g.legalActions(id).length).sort((a,b)=>g.actionCounts[a]-g.actionCounts[b]||a-b);
+    const candidates=(g.phase==='vote'?g.voters:g.remaining).filter(id=>g.legalActions(id).length).sort((a,b)=>g.actionCounts[a]-g.actionCounts[b]||a-b);
     for(const actor of candidates){
       if(this.jobs.has(actor))continue;
       const waiting=this.waiting.get(actor);
