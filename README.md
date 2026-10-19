@@ -225,18 +225,15 @@ its complete updated context. No stale action is forced through. Joining merges
 lanes; leaving splits them. A solo inviter can accept a different invitation,
 withdrawing their own outstanding invitations.
 
-Each remaining live player gets four speaking or sit-out opportunities before
-the council, plus eight separate setup/group-management actions. Invitations and
-joining no longer consume speaking opportunities. When setup is exhausted, only
-say/pass/leave remain; leaving then uses a discussion opportunity. An agent can
-still choose silence. The default prompt encourages questions, responses and
-voting discussions, without scripting speech. The UI shows messages per council
-and each player’s remaining allowances. Fast agents can use their opportunities
-without waiting for unrelated conversations. Voting begins only after all
-social actions and assessments finish; ballots are private and can be generated
-in parallel. Results are applied atomically as ready, so live order follows actual
-completion, not a fixed global player order. Free scripted walkthroughs retain
-their authored sequential order.
+Live agents can act throughout a shared two-minute discussion before every vote.
+There are no personal speaking/setup quotas. Waiting schedules reconsideration
+in five seconds; new private notifications wake the agent earlier. Everyone sees
+`voteClock.secondsRemaining` in their observation; the UI displays the same
+countdown. Pause freezes active time; speed controls do not shorten the discussion.
+At zero the runner stops new decisions, finishes pending replies/assessments, then
+opens voting. “Call vote now” can end discussion early with the same drain rule.
+After elimination a fresh two-minute window starts. Default scripted walkthroughs
+retain their four authored rounds. The bounded local spending guard still applies.
 
 The local provider is IBM Granite 4.0 H Small via Runpod's native runsync API.
 Observed bounded test: three independent choices and two spoken messages finished

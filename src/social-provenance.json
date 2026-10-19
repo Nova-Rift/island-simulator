@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/Nova-Rift/survival-env",
-  "commit": "e76087a8527dd34163c764007616645ba2cc5930",
+  "commit": "e8ee8b1e4d95bc5f39a8247150760aa11f02e0f1",
   "file": "browser/social.mjs",
-  "sha256": "5cc163882e758aec0e48b2b29451e94c85b981e7ab1039f099bf6f9a571af835",
+  "sha256": "827b3700c55517a422b1fd050764372f96176763cf716477fb4bcc0c9be41742",
   "environment": "social-v1"
 }

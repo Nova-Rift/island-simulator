@@ -85,6 +85,19 @@ try {
   assert.ok(progressed>=7,'Unrelated actors should advance while Maya waits')
   await click('Stop waiting');await delay(100)
   assert.match(await evaluate("document.querySelector('.social-state').textContent"),new RegExp('turn '+progressed+' ·'))
+  await click('Reset');await delay(50)
+  await evaluate(`window.clockSeen=[];window.fetch=async(url,options)=>{
+    if(url==='/api/island/status')return Response.json({ready:true});
+    const observation=JSON.parse(JSON.parse(options.body).messages[1].content);window.clockSeen.push(observation.voteClock);
+    return Response.json({text:'0'})
+  }`)
+  await click('Play');await delay(1300);await click('Pause');await delay(50)
+  const pausedClock=await evaluate("document.querySelector('.social-state strong').textContent")
+  assert.match(pausedClock,/Vote 1 in 1:5[89]/)
+  assert.ok(await evaluate('window.clockSeen.every(c=>c.secondsRemaining>0&&c.secondsRemaining<=120)'))
+  await delay(1100);assert.equal(await evaluate("document.querySelector('.social-state strong').textContent"),pausedClock)
+  await click('Call vote now');await delay(50)
+  assert.equal(await evaluate("document.querySelector('.social-state strong').textContent"),'Vote 1')
   assert.deepEqual(errors,[]);console.log('Context rejection pauses without advancing, losing intention, retrying, or supplying fallback actions.')
 
 } finally {

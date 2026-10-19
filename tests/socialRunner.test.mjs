@@ -23,8 +23,38 @@ test('new personal notifications invalidate only the affected pending decision',
  g.step({type:'invite',target:0},'llm',1);finish({type:'invite',target:2});await tick();
  assert.equal(g.turn,1);assert.equal(g.actionCounts[0],0);runner.stop();
 });
-test('independent actions still enforce quotas, mandatory voting and one winner',async()=>{
- const g=new SocialGame({concurrent:true});let runner;
- await new Promise((resolve,reject)=>{runner=new SocialRunner({game:g,decide:async o=>o.phase==='vote'?o.legal[0]:{type:'pass'},onDone:resolve,onError:reject});runner.start()});
- assert.equal(g.councils.length,7);assert.equal(g.turn,175);assert.equal(g.remaining.length,1);runner.stop();
+test('shared deadlines still enforce mandatory voting and one winner',async()=>{
+ const g=new SocialGame({concurrent:true,discussionSeconds:1});let runner,now=0;
+ await new Promise((resolve,reject)=>{runner=new SocialRunner({game:g,now:()=>now,waitMs:0,onEvent:()=>{now+=250;runner.tick()},decide:async o=>o.phase==='vote'?o.legal[0]:{type:'pass'},onDone:resolve,onError:reject});runner.start()});
+ assert.equal(g.councils.length,7);assert.ok(g.turn>=35);assert.equal(g.remaining.length,1);runner.stop();
+});
+
+test('waiting agents wake on invitations and their clock does not invalidate pending decisions',async()=>{
+ const g=new SocialGame({concurrent:true});let now=0,finish;const seen=[];
+ const runner=new SocialRunner({game:g,now:()=>now,decide:o=>{seen.push(o);return new Promise(r=>finish=r)}});
+ runner.start(false);finish({type:'pass'});await tick();
+ runner.start(false);assert.equal(seen.at(-1).agent,1); // waiting Maya is skipped
+ runner.stop();
+ g.step({type:'invite',target:0},'llm',2);
+ const awake=new SocialRunner({game:g,now:()=>now,decide:o=>{seen.push(o);return new Promise(()=>{})}});
+ awake.waiting.set(0,{until:5000,context:'old personal context'});
+ const before=seen.length;awake.start();
+ assert.ok(seen.slice(before).some(o=>o.agent===0&&o.invitations.length>0),'New invitation wakes waiting Maya before five seconds');
+ awake.stop();
+ const timed=new SocialGame({concurrent:true,discussionSeconds:2});
+ const r=new SocialRunner({game:timed,now:()=>now,decide:o=>{seen.push(o);return new Promise(()=>{})}});
+ r.start();now=1000;r.tick();assert.equal(timed.observe(0).voteClock.secondsRemaining,1);
+ r.pause();now=10000;r.tick();assert.equal(timed.discussionRemainingMs,1000);r.stop();
+});
+
+test('deadline drains in-flight replies before voting, even when the clock changed',async()=>{
+ const g=new SocialGame({concurrent:true,discussionSeconds:1});let now=0;
+ const decisions=new Map();let releaseAssessment;
+ g.step({type:'invite',target:1},'llm',0);g.step({type:'join',group:1},'llm',1);
+ const r=new SocialRunner({game:g,now:()=>now,decide:o=>new Promise(resolve=>decisions.set(o.agent,resolve)),assess:()=>new Promise(resolve=>releaseAssessment=resolve)});
+ r.start();now=1100;r.tick();r.pump();assert.equal(g.phase,'social');
+ decisions.get(0)({type:'say',text:'A last word before voting.'});
+ for(const [id,resolve] of decisions)if(id!==0)resolve({type:'pass'});
+ await tick();assert.equal(g.events.filter(e=>e.type==='say').length,1);assert.equal(g.phase,'social');
+ releaseAssessment();await tick();assert.equal(g.phase,'vote');r.stop();
 });

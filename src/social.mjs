@@ -5,12 +5,13 @@ const copy = value => structuredClone(value);
 const brief = value => typeof value === 'string' ? value.trim().slice(0,180) : '';
 
 export class SocialGame {
-  constructor({seed=0,rounds=4,concurrent=false}={}) {
+  constructor({seed=0,rounds=4,concurrent=false,discussionSeconds=120}={}) {
     if (!Number.isInteger(seed) || !Number.isInteger(rounds) || rounds<1 || rounds>12) throw new RangeError('Invalid social game options');
-    this.seed=seed; this.rounds=rounds; this.concurrent=concurrent; this.reset();
+    if(!Number.isFinite(discussionSeconds)||discussionSeconds<=0)throw new RangeError('Invalid discussion duration');
+    this.discussionSeconds=discussionSeconds;this.discussionRemainingMs=discussionSeconds*1000;this.seed=seed; this.rounds=rounds; this.concurrent=concurrent; this.reset();
   }
   reset() {
-    this.alive=PEOPLE.map(()=>true); this.groups=[]; this.nextGroup=1;
+    this.discussionRemainingMs=this.discussionSeconds*1000;this.alive=PEOPLE.map(()=>true); this.groups=[]; this.nextGroup=1;
     this.actionCounts=PEOPLE.map(()=>0);this.discussionCounts=PEOPLE.map(()=>0);this.managementCounts=PEOPLE.map(()=>0); this.turn=0; this.round=1; this.cycle=1; this.phase='social'; this.cursor=0;
     this.socialHistory=PEOPLE.map(()=>[]); this.knownGroups=PEOPLE.map(()=>new Set()); this.memories=PEOPLE.map(()=>[]); this.decisions=PEOPLE.map(()=>[]); this.intentions=PEOPLE.map(()=>[]); this.summaries=PEOPLE.map(()=> 'No conversation yet.');
     this.statuses=PEOPLE.map(()=> 'On their own'); this.events=[]; this.ballots=[]; this.councils=[];
@@ -19,14 +20,14 @@ export class SocialGame {
   }
   get remaining() { return this.alive.flatMap((v,i)=>v?[i]:[]); }
   get done() { return this.phase==='finished'; }
-  get current() { return this.done ? null : this.concurrent ? (this.remaining.find(id=>this.phase==='vote'?!this.ballots.some(b=>b.voter===id):this.discussionCounts[id]<this.rounds)??null) : this.remaining[this.cursor]; }
+  get current() { return this.done ? null : this.concurrent ? (this.remaining.find(id=>this.phase==='vote'?!this.ballots.some(b=>b.voter===id):true)??null) : this.remaining[this.cursor]; }
   groupOf(agent) { return this.groups.find(g=>g.members.includes(agent)); }
   observe(agent=this.current) {
     if (!Number.isInteger(agent) || !this.alive[agent]) throw new RangeError('Inactive agent');
     const group=this.groupOf(agent);
     return {
       version:SOCIAL_VERSION, agent, name:PEOPLE[agent], cycle:this.cycle, round:this.concurrent&&this.phase==='social'?Math.min(this.rounds,this.discussionCounts[agent]+1):this.round, rounds:this.rounds, phase:this.phase,
-      ...(this.concurrent?{opportunities:{discussionRemaining:this.rounds-this.discussionCounts[agent],managementRemaining:Math.max(0,2*this.rounds-this.managementCounts[agent]),rule:'Say or pass uses one discussion opportunity. Setup uses a separate management allowance. After management runs out, only say, pass or leave remain; leaving then uses a discussion opportunity.'}}:{}),
+      ...(this.concurrent?{voteClock:{secondsRemaining:Math.ceil(this.discussionRemainingMs/1000),discussionSeconds:this.discussionSeconds,rule:'You may act throughout discussion. Passing means waiting briefly, not opting out. When the shared active-play clock reaches zero, pending replies finish and everyone votes.'}}:{}),
       remaining:this.remaining.map(id=>({id,name:PEOPLE[id]})),
       // Only current own membership is visible; other groups must be encountered or reported.
       groups:group && group.members.length>1 ? [{id:group.id,members:group.members.slice()}] : [],
@@ -41,7 +42,7 @@ export class SocialGame {
   }
   legalActions(agent=this.current) {
     if (!this.alive[agent] || this.done) return [];
-    if(this.concurrent&&(this.phase==='vote'?this.ballots.some(b=>b.voter===agent):this.discussionCounts[agent]>=this.rounds))return [];
+    if(this.concurrent&&this.phase==='vote'&&this.ballots.some(b=>b.voter===agent))return [];
     if (this.phase==='vote') return this.remaining.filter(i=>i!==agent).map(target=>({type:'vote',target}));
     const actions=[{type:'pass'}], group=this.groupOf(agent);
     if (group) {
@@ -61,7 +62,7 @@ export class SocialGame {
     for(const target of this.remaining.filter(i=>i!==agent && !group?.members.includes(i))) {
       if(!group || (!group.invited.includes(target)&&!group.blocked.includes(target)))actions.push({type:'invite',target});
     }
-    return this.concurrent&&this.managementCounts[agent]>=2*this.rounds?actions.filter(a=>['say','pass','leave'].includes(a.type)):actions;
+    return actions;
   }
   remember(audience,text) {
     for(const id of audience) this.memories[id].push({turn:this.turn,cycle:this.cycle,round:this.round,text});
@@ -143,7 +144,7 @@ export class SocialGame {
         } else if(proposal.no.length>group.members.length-1-proposal.needed)group.proposals=group.proposals.filter(p=>p!==proposal);
         this.statuses[actor]='Responded to the group';break;
       }
-      case 'pass':text=`${name} chooses not to participate this turn.`;this.statuses[actor]='Sitting this turn out';break;
+      case 'pass':text=this.concurrent?`${name} chooses to wait for now.`:`${name} chooses not to participate this turn.`;this.statuses[actor]=this.concurrent?'Waiting — may act again':'Sitting this turn out';break;
       case 'vote':
         this.ballots.push({voter:actor,target,reason:brief(action.reason)||'No reason given.',source});
         text=`${name} casts a private ballot.`;this.statuses[actor]='Voted';break;
@@ -174,10 +175,10 @@ export class SocialGame {
     if(this.concurrent){
       if(this.phase==='social'){
         this.actionCounts[actor]++;
-        if(['say','pass'].includes(chosen.type)||this.managementCounts[actor]>=2*this.rounds)this.discussionCounts[actor]++;
+        if(['say','pass'].includes(chosen.type))this.discussionCounts[actor]++;
         else this.managementCounts[actor]++;
         this.round=Math.min(this.rounds,Math.min(...this.remaining.map(id=>this.discussionCounts[id]))+1);
-        if(this.remaining.every(id=>this.discussionCounts[id]>=this.rounds))this.phase='vote';
+
       }else if(this.ballots.length===this.remaining.length)this.finishVote();
     }else{
       this.cursor++;
@@ -188,6 +189,10 @@ export class SocialGame {
       }
     }
     return {event:copy(event),listeners,frame:this.frame()};
+  }
+  beginVote() {
+    if(!this.concurrent||this.phase!=='social')throw new Error('No live discussion to close');
+    this.discussionRemainingMs=0;this.phase='vote';return this.frame();
   }
   finishVote() {
     const counts=this.remaining.map(id=>({id,count:this.ballots.filter(v=>v.target===id).length}));
@@ -202,10 +207,10 @@ export class SocialGame {
     this.alive[eliminated]=false;this.statuses[eliminated]='Voted out';this.groups=[];this.ballots=[];this.round=1;this.actionCounts=PEOPLE.map(()=>0);this.discussionCounts=PEOPLE.map(()=>0);this.managementCounts=PEOPLE.map(()=>0);
     this.remember(this.remaining,`${PEOPLE[eliminated]} was voted out.`);
     if(this.remaining.length===1){this.phase='finished';this.winner=this.remaining[0];this.rewards[this.winner]=1;}
-    else{this.phase='social';this.cycle++;}
+    else{this.phase='social';this.cycle++;this.discussionRemainingMs=this.discussionSeconds*1000;}
   }
   frame() {
-    return copy({version:SOCIAL_VERSION,seed:this.seed,concurrent:this.concurrent,actionCounts:this.actionCounts,discussionCounts:this.discussionCounts,managementCounts:this.managementCounts,turn:this.turn,cycle:this.cycle,round:this.round,rounds:this.rounds,
+    return copy({version:SOCIAL_VERSION,seed:this.seed,discussionRemainingMs:this.discussionRemainingMs,discussionSeconds:this.discussionSeconds,concurrent:this.concurrent,actionCounts:this.actionCounts,discussionCounts:this.discussionCounts,managementCounts:this.managementCounts,turn:this.turn,cycle:this.cycle,round:this.round,rounds:this.rounds,
       phase:this.phase,current:this.current,alive:this.alive,groups:this.groups.filter(g=>g.members.length>1),pendingConversations:this.groups.filter(g=>g.members.length===1),summaries:this.summaries,statuses:this.statuses,
       events:this.events,councils:this.councils,winner:this.winner,rewards:this.rewards});
   }
