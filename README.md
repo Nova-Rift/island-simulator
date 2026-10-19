@@ -145,3 +145,11 @@ Active conversations display a scrolling chatbox beside their participants. Ever
 message stays in the chat, with speaker and turn labels. New activity follows the
 bottom unless you scroll up to read; use “New activity” to return to the latest
 messages. Closed conversations remain available in the history panel below.
+
+Open **Starting prompt · editable** above the controls to inspect or change the
+live decision system prompt. `{name}` is replaced with each agent's name. Pause
+before editing; edits affect subsequent decisions. Reset preserves the edited
+prompt while clearing the game; reload restores the default. “Restore default
+prompt” restores the shared built-in instructions. Personal observations are still
+attached separately; assessment prompts and game rules are unchanged. Scripted
+mode does not use the prompt.

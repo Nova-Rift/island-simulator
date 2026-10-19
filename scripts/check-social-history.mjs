@@ -53,12 +53,17 @@ try {
     throw Error('Unexpected fetch '+url)
   };window.fetch=async(url,options)=>{
     if(url==='/api/island/status')return Response.json({ready:true});
-    const input=JSON.parse(options.body);
+    const input=JSON.parse(options.body);window.lastPrompt=input.messages[0].content;
     return Response.json({text:JSON.stringify(input.messages[0].content.includes('Assess your situation')?{summary:'My ally may help, but I remain vulnerable.',winProbability:0.42}:window.mockActions.shift())})
   }`)
   await evaluate("document.querySelector('.social-paid input').click()")
   await delay(100)
-  for(let i=0;i<12;i++){await click('Next turn');await delay(100)}
+  await evaluate(`document.querySelector('.social-prompt').open=true;const textarea=document.querySelector('#agent-starting-prompt');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(textarea,textarea.value+' CUSTOM_PROMPT_CHECK');textarea.dispatchEvent(new Event('input',{bubbles:true}))`)
+  await delay(50)
+  await click('Next turn');await delay(100)
+  assert.match(await evaluate('window.lastPrompt'),/CUSTOM_PROMPT_CHECK/)
+  assert.match(await evaluate('window.lastPrompt'),/You are Maya/)
+  for(let i=1;i<12;i++){await click('Next turn');await delay(100)}
   assert.match(await evaluate("document.querySelector('.social-summaries').textContent"),/Own estimate of winning: 42%/)
   const chat=await evaluate("({text:document.querySelector('[aria-label=\"Messages in conversation 2\"]').textContent,count:document.querySelectorAll('[aria-label=\"Messages in conversation 2\"] .social-chat-message').length})")
   assert.equal(chat.count,2)

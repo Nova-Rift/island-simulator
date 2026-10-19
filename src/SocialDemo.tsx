@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { PEOPLE, SocialGame } from './social.mjs'
 import type { Action, SocialFrame, Event } from './social.mjs'
-import { decisionPrompt, parseDecision, scriptedDecision, summaryPrompt, parseAssessment } from './socialPolicy'
+import { decisionPrompt, parseDecision, scriptedDecision, summaryPrompt, parseAssessment, DEFAULT_STARTING_PROMPT } from './socialPolicy'
 import type { SocialModel } from './socialPolicy'
 import './social.css'
 
@@ -14,6 +14,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
  const [paid,setPaid]=useState(false),[status,setStatus]=useState('Ready to start.'),[error,setError]=useState('')
  const [assessments,setAssessments]=useState<Record<number,Assessment>>({})
  const [historyGroup,setHistoryGroup]=useState('all'),[historyAgent,setHistoryAgent]=useState('all')
+ const [startingPrompt,setStartingPrompt]=useState(DEFAULT_STARTING_PROMPT)
  const latest=frame.events.at(-1)
  const conversations=Array.from(new Set(frame.events.filter(e=>e.group!==null).map(e=>`${e.cycle}:${e.group}`)))
  const history=frame.events.filter(e=>e.group!==null && (historyGroup==='all'||`${e.cycle}:${e.group}`===historyGroup) && (historyAgent==='all'||e.audience.includes(Number(historyAgent))))
@@ -21,7 +22,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
  function reset(){generation.current++;pause();model.current?.dispose();model.current=null;game.current=new SocialGame();setFrame(game.current.frame());setBusy(false);setError('');setStatus('Ready to start.');setAssessments({});setHistoryGroup('all');setHistoryAgent('all')}
  useEffect(()=>()=>{generation.current++;model.current?.dispose()},[])
  async function advance(){
-  if(busy||game.current.done)return
+  if(busy||game.current.done||!startingPrompt.trim())return
   const id=generation.current,g=game.current,active=()=>generation.current===id
   setBusy(true);setError('')
   try{
@@ -30,7 +31,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    setStatus(`${PEOPLE[actor]} is ${g.phase==='vote'?'choosing a vote':'deciding what to do'}…`)
    let action:Action,source='scripted'
    if(paid){
-    try{action=parseDecision(await model.current!.generate(decisionPrompt(observation),true),observation);source='llm'}
+    try{action=parseDecision(await model.current!.generate(decisionPrompt(observation,startingPrompt),true),observation);source='llm'}
     catch(e){if((e as {code?:string})?.code==='CONTEXT_LIMIT')throw e;if(!active())return;action=observation.phase==='vote'?{...observation.legal[0],reason:'Model vote unavailable; mandatory rule fallback.'}:{type:'pass',intention:'No model choice available; sat this turn out.'};source='fallback';setError('A model response was unavailable or invalid. This turn is labeled as a rule fallback.')}
    }else action=scriptedDecision(observation)
    if(!active())return
@@ -72,9 +73,19 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
  return <section className="social-demo" aria-labelledby="social-title">
   <div className="social-heading"><h2 id="social-title">Conversations & a vote</h2><span>{paid?'Local Runpod · paid':'Scripted example · free'}</span></div>
   <p className="social-intro">Talk, ask to join, or sit it out. Four rounds, then everyone votes.</p>
+  <details className="social-prompt">
+   <summary>Starting prompt · editable</summary>
+   <label htmlFor="agent-starting-prompt">Instructions shared by all live agents</label>
+   <textarea id="agent-starting-prompt" value={startingPrompt} disabled={busy||playing} onChange={e=>setStartingPrompt(e.target.value)} spellCheck={false}/>
+   <p>Use {'{name}'} for each agent’s name. Changes apply to subsequent live decisions; reset the game to start everyone with the new prompt. Scripted mode does not use it.</p>
+   <p>Each decision also includes that agent’s game state, legal actions and full personal history. Post-conversation assessments use a separate prompt.</p>
+   <button type="button" disabled={busy||playing} onClick={()=>setStartingPrompt(DEFAULT_STARTING_PROMPT)}>Restore default prompt</button>
+   {(busy||playing)&&<p>Pause to edit the prompt.</p>}
+   {!startingPrompt.trim()&&<p role="alert">Enter a prompt before starting.</p>}
+  </details>
   <div className="social-controls">
-   <button onClick={toggle} disabled={frame.phase==='finished'}>{playing?(busy?'Pause after turn':'Pause'):'Play'}</button>
-   <button onClick={()=>void advance()} disabled={playing||busy||frame.phase==='finished'}>Next turn</button>
+   <button onClick={toggle} disabled={frame.phase==='finished'||!startingPrompt.trim()}>{playing?(busy?'Pause after turn':'Pause'):'Play'}</button>
+   <button onClick={()=>void advance()} disabled={playing||busy||frame.phase==='finished'||!startingPrompt.trim()}>Next turn</button>
    <button onClick={reset}>Reset</button>
    <label>Speed <select value={speed} onChange={e=>setSpeed(Number(e.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></label>
    {makeModel&&<label className="social-paid"><input type="checkbox" checked={paid} onChange={e=>{reset();setPaid(e.target.checked)}}/>Use my local Runpod (paid)</label>}

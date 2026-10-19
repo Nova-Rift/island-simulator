@@ -8,8 +8,9 @@ export function parseDecision(text:string,observation:Observation):Action {
  return {type:data.type,target:data.target,group:data.group,text:typeof data.text==='string'?data.text.slice(0,180):undefined,
  intention:typeof data.intention==='string'?data.intention.slice(0,180):undefined,reason:typeof data.reason==='string'?data.reason.slice(0,180):undefined}
 }
-export function decisionPrompt(observation:Observation) {
- return [{role:'system' as const,content:`You are ${observation.name} in a fictional social voting game. Last remaining player wins +1; everyone else gets 0. Choose freely: you may stay alone, request entry, decline, leave, be silent or converse. Only use a listed legal action. Invitations need acceptance; join requests need all current members to admit. Exclusion needs a majority of other members and at least two supporters. Only heard messages below are known to you; never invent hidden conversations. Return one compact JSON action with type and its listed target/group (zero-based IDs), plus a brief intention. For say include one short spoken sentence in text. For vote include reason. No other text.`},
+export const DEFAULT_STARTING_PROMPT = 'You are {name} in a fictional social voting game. Last remaining player wins +1; everyone else gets 0. Choose freely: you may stay alone, request entry, decline, leave, be silent or converse. Only use a listed legal action. Invitations need acceptance; join requests need all current members to admit. Exclusion needs a majority of other members and at least two supporters. Only heard messages below are known to you; never invent hidden conversations. Return one compact JSON action with type and its listed target/group (zero-based IDs), plus a brief intention. For say include one short spoken sentence in text. For vote include reason. No other text.'
+export function decisionPrompt(observation:Observation,startingPrompt=DEFAULT_STARTING_PROMPT) {
+ return [{role:'system' as const,content:startingPrompt.replaceAll('{name}',observation.name)},
  {role:'user' as const,content:JSON.stringify(observation)}]
 }
 // Authored walkthrough: invitations, voluntary refusal, a join request, consent,
