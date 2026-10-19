@@ -52,9 +52,11 @@ export function createLocalServer({port=4174,apiKey='',openaiApiKey='',stateDire
 }
 if(process.argv[1] && pathToFileURL(resolve(process.argv[1])).href===import.meta.url) {
   try {
-    const key=await loadKey(process.env.RUNPOD_KEY_FILE)
+    // Paid inference is off by default, including requests from stale browser tabs.
+    const paidEnabled=process.env.ISLAND_ENABLE_PAID==='1'
+    const key=paidEnabled?await loadKey(process.env.RUNPOD_KEY_FILE):''
     const defaultOpenAI=join(root,'.local/openai-api-key')
-    const openaiApiKey=process.env.OPENAI_API_KEY || await loadKey(process.env.OPENAI_API_KEY_FILE || (await lstat(defaultOpenAI).catch(()=>null)?defaultOpenAI:undefined))
+    const openaiApiKey=paidEnabled?(process.env.OPENAI_API_KEY || await loadKey(process.env.OPENAI_API_KEY_FILE || (await lstat(defaultOpenAI).catch(()=>null)?defaultOpenAI:undefined))):''
     const app=createLocalServer({apiKey:key,openaiApiKey})
     console.log(openaiApiKey?'OpenAI configured; inference requires a paid action.':'OpenAI not configured. Run npm run setup:openai to save a private key.')
     const url=await app.listen()

@@ -2,9 +2,20 @@ import { createRoot } from 'react-dom/client'
 import { useState } from 'react'
 import { SocialDemo } from './SocialDemo'
 import { LiveSurvival } from './LiveSurvival'
-import { ServerLanguageModel } from './serverLanguage'
+import { BlankSimulation } from './BlankSimulation'
 import './styles.css'
 import './local.css'
-const makeModel=(provider:'runpod'|'openai'='runpod')=>new ServerLanguageModel(provider)
-function App(){const [legacy,setLegacy]=useState(false);return <main className="local-shell"><header><p className="eyebrow">LOCAL RESEARCH WORKSPACE</p><h1>Social simulator</h1><p>Private conversations and a vote. Free scripted mode by default; choose Runpod or OpenAI for live agent choices.</p><button onClick={()=>setLegacy(!legacy)}>{legacy?'Back to social game':'Earlier island game'}</button></header>{legacy?<LiveSurvival/>:<SocialDemo makeModel={makeModel}/>}</main>}
+function App(){
+ const [simulation,setSimulation]=useState('blank')
+ return <main className="local-shell">
+  <header><h1>Agent sandbox</h1>
+   <label>Environment <select value={simulation} onChange={e=>setSimulation(e.target.value)}>
+    <option value="blank">Blank · 10 agents</option>
+    <option value="social">Archive · social game (scripted)</option>
+    <option value="island">Archive · island simulation</option>
+   </select></label>
+  </header>
+  {simulation==='blank'?<BlankSimulation/>:simulation==='social'?<SocialDemo/>:<LiveSurvival/>}
+ </main>
+}
 createRoot(document.getElementById('root')!).render(<App/>)

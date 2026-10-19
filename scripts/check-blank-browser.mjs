@@ -1,0 +1,58 @@
+// Optional real-browser smoke test. Uses an isolated profile and text/DOM only.
+// No screenshots, existing user profile or browser installation.
+// Scripted social mode only: no paid calls allowed.
+// Usage: node scripts/check-island-browser.mjs http://127.0.0.1:4173/
+import { spawn } from 'node:child_process'
+import { mkdtemp, rm } from 'node:fs/promises'
+import assert from 'node:assert/strict'
+const profile = await mkdtemp('/tmp/island-chrome-')
+const chrome = spawn('google-chrome', ['--headless=new', `--user-data-dir=${profile}`, '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
+let ws, sequence = 0
+const pending = new Map(), errors = []
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
+try {
+  const endpoint = await new Promise((resolve, reject) => {
+    let log = ''
+    const timeout = setTimeout(() => reject(new Error('Chrome startup timed out')), 15_000)
+    chrome.stderr.on('data', data => {
+      log += data
+      const match = log.match(/DevTools listening on (ws:\/\/[^\s]+)/)
+      if (match) { clearTimeout(timeout); resolve(match[1]) }
+    })
+    chrome.once('exit', code => { clearTimeout(timeout); reject(new Error(`Chrome exited ${code}: ${log.slice(-500)}`)) })
+  })
+  const targets = await (await fetch(`http://${new URL(endpoint).host}/json/list`)).json()
+  ws = new WebSocket(targets.find(target => target.type === 'page').webSocketDebuggerUrl)
+  await new Promise(resolve => ws.addEventListener('open', resolve, { once: true }))
+  ws.addEventListener('message', event => {
+    const message = JSON.parse(event.data)
+    if (message.id) {
+      const request = pending.get(message.id); pending.delete(message.id)
+      message.error ? request.reject(message.error) : request.resolve(message.result)
+    } else if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails)
+  })
+  const call = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = ++sequence; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params }))
+  })
+  const evaluate = async expression => {
+    const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+    if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails))
+    return result.result?.value
+  }
+  const click = text => evaluate(`Array.from(document.querySelectorAll('button')).find(b => b.textContent === ${JSON.stringify(text)})?.click()`)
+  await call('Runtime.enable'); await call('Page.enable')
+  await call('Page.navigate', { url: process.argv[2] || 'http://127.0.0.1:4173/' })
+  await delay(3000)
+  assert.equal(await evaluate("document.querySelectorAll('.blank-world g').length"),10)
+  assert.match(await evaluate("document.querySelector('h1').textContent"),/Agent sandbox/)
+  assert.equal(await evaluate("document.querySelectorAll('.social-demo').length"),0)
+  assert.equal(await evaluate("performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).length"),0)
+  assert.equal(await evaluate("document.documentElement.scrollWidth<=innerWidth"),true)
+  assert.deepEqual(errors,[])
+  console.log('Blank world: ten agents, no dialogue UI or API calls, no DOM errors.')
+
+} finally {
+  ws?.close()
+  if (chrome.exitCode === null) { chrome.kill('SIGTERM'); await new Promise(resolve => chrome.once('exit', resolve)) }
+  await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
+}
