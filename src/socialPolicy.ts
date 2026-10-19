@@ -62,7 +62,7 @@ export function gameReviewPrompt(frame:SocialFrame,agent:number) {
 
 export async function chooseModelDecision(model:SocialModel,observation:Observation,startingPrompt=DEFAULT_STARTING_PROMPT):Promise<Action>{
  const choices=observation.legal.map((action,choice)=>({choice,action}))
- const schema={type:'object',properties:{choice:{type:'integer',enum:choices.map(c=>c.choice)},text:{type:'string',maxLength:180},intention:{type:'string',maxLength:180},reason:{type:'string',maxLength:180}},required:['choice','text','intention','reason'],additionalProperties:false}
+ const schema={type:'object',properties:{choice:{type:'integer',enum:choices.map(c=>c.choice)},text:{type:'string'},intention:{type:'string'},reason:{type:'string'}},required:['choice','text','intention','reason'],additionalProperties:false}
  const messages=decisionPrompt(observation,startingPrompt)
  messages[0].content+=' Output format for this decision: choose one numbered entry from choices. Return JSON with choice (the exact integer), intention, text (only for say, otherwise empty), and reason (only for vote, otherwise empty). The choice maps to the full action; do not output type, target or group.'
  messages[1].content=JSON.stringify({...observation,choices})

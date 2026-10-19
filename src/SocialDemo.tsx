@@ -17,10 +17,13 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
  const [startingPrompt,setStartingPrompt]=useState(DEFAULT_STARTING_PROMPT)
  const [reviews,setReviews]=useState<Record<number,string>>({}),[reviewErrors,setReviewErrors]=useState<Record<number,string>>({}),[reviewing,setReviewing]=useState(false)
  const reviewBusy=useRef(false)
+ const [waitingSeconds,setWaitingSeconds]=useState(0)
+ useEffect(()=>{if(!busy&&!reviewing){setWaitingSeconds(0);return}const start=Date.now();const timer=setInterval(()=>setWaitingSeconds(Math.floor((Date.now()-start)/1000)),1000);return()=>clearInterval(timer)},[busy,reviewing])
  const latest=frame.events.at(-1)
  const conversations=Array.from(new Set(frame.events.filter(e=>e.group!==null).map(e=>`${e.cycle}:${e.group}`)))
  const history=frame.events.filter(e=>e.group!==null && (historyGroup==='all'||`${e.cycle}:${e.group}`===historyGroup) && (historyAgent==='all'||e.audience.includes(Number(historyAgent))))
  function pause(){running.current=false;setPlaying(false)}
+ function stopWaiting(){generation.current++;pause();model.current?.dispose();model.current=null;setBusy(false);setReviewing(false);reviewBusy.current=false;setStatus('Stopped waiting. Current game state kept.');setError('')}
  function reset(){generation.current++;pause();model.current?.dispose();model.current=null;game.current=new SocialGame();setFrame(game.current.frame());setBusy(false);setError('');setStatus('Ready to start.');setAssessments({});setHistoryGroup('all');setHistoryAgent('all');setReviews({});setReviewErrors({});setReviewing(false);reviewBusy.current=false}
  useEffect(()=>()=>{generation.current++;model.current?.dispose()},[])
  async function reviewGame(finalFrame:SocialFrame){
@@ -109,11 +112,12 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    <button onClick={toggle} disabled={frame.phase==='finished'||!startingPrompt.trim()}>{playing?(busy?'Pause after turn':'Pause'):'Play'}</button>
    <button onClick={()=>void advance()} disabled={playing||busy||frame.phase==='finished'||!startingPrompt.trim()}>Next turn</button>
    <button onClick={reset}>Reset</button>
-   <label>Speed <select value={speed} onChange={e=>setSpeed(Number(e.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></label>
+   {(busy||reviewing)&&<button onClick={stopWaiting}>Stop waiting</button>}
+   <label title="Only changes the pause between turns; does not speed up Runpod inference.">Turn speed <select value={speed} onChange={e=>setSpeed(Number(e.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></label>
    {makeModel&&<label className="social-paid"><input type="checkbox" checked={paid} onChange={e=>{reset();setPaid(e.target.checked)}}/>Use my local Runpod (paid)</label>}
   </div>
   <div className="social-state"><strong>{frame.phase==='finished'?`${PEOPLE[frame.winner!]} wins!`:frame.phase==='vote'?`Vote ${frame.cycle}`:`Round ${frame.round}/4 · vote ${frame.cycle} ahead`}</strong><span>{frame.alive.filter(Boolean).length} remain · turn {frame.turn}</span></div>
-  <p className="social-status" role="status">{busy?'Working… ':''}{status}{latest?.source==='fallback'?' (Rule fallback)':''}</p>
+  <p className="social-status" role="status">{busy?`Waiting on ${paid?'Runpod':'simulation'} · ${waitingSeconds}s — `:''}{status}{latest?.source==='fallback'?' (Rule fallback)':''}</p>
   {error&&<p className="conversation-error" role="alert">{error}</p>}
   <div className="social-board">
    {frame.groups.map(group=><section className="social-group" key={group.id} aria-label={`Private conversation ${group.id}`}>
@@ -157,7 +161,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
   {frame.phase==='finished'&&<section className="social-review" aria-labelledby="game-review-title">
    <h3 id="game-review-title">Game recap</h3>
    <p>An outside observer reviews the full transcript and votes. Explanations of motives are interpretations.</p>
-   {reviewing&&<p role="status">Reviewing each player’s game…</p>}
+   {reviewing&&<p role="status">Reviewing each player’s game… {waitingSeconds}s elapsed</p>}
    <div className="social-summaries">{PEOPLE.map((name,i)=><article key={name}><strong>{name}{frame.winner===i?' · winner':''}</strong><p>{reviews[i]||reviewErrors[i]||(reviewing?'Waiting for review…':'Not reviewed yet.')}</p></article>)}</div>
    {makeModel&&!reviewing&&Object.keys(reviews).length<PEOPLE.length&&<button onClick={()=>void reviewGame(frame)}>{Object.keys(reviewErrors).length?'Retry missing reviews (paid)':'Generate AI recap (paid)'}</button>}
   </section>}

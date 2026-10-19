@@ -198,3 +198,12 @@ panels require at least two participants. If only one remains, they return to th
 on-their-own area and the transcript stays in history.
 
 Provider integration uses [vLLM structured output response formats](https://docs.vllm.ai/en/stable/examples/features/structured_outputs/).
+
+### Waiting for the model
+
+Turn speed only shortens the delay between turns, not inference latency. The UI
+shows elapsed waiting time. **Stop waiting** aborts the current model request and
+keeps the current game state (a speech already delivered is not rolled back).
+The shared Runpod endpoint can be slow: a live initial-action check took ~64s.
+Schema string-length constraints were removed to simplify decoding; output tokens
+remain capped and displayed text is still bounded. No fast-response guarantee.

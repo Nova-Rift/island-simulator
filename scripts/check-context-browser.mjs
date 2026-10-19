@@ -64,6 +64,14 @@ try {
   await click('Next turn');await delay(100)
   assert.match(await evaluate("document.querySelector('[role=alert]').textContent"),/valid constrained choice/)
   assert.match(await evaluate("document.querySelector('.social-state').textContent"),/turn 0$/)
+  await click('Reset');await delay(50)
+  await evaluate(`window.fetch=async(url,options)=>url==='/api/island/status'?Response.json({ready:true}):new Promise((resolve,reject)=>{options.signal.addEventListener('abort',()=>reject(new DOMException('Stopped','AbortError')),{once:true})})`)
+  await click('Next turn');await delay(1200)
+  assert.match(await evaluate("document.querySelector('.social-status').textContent"),/Waiting on Runpod · 1s/)
+  await click('Stop waiting');await delay(100)
+  assert.match(await evaluate("document.querySelector('.social-state').textContent"),/turn 0$/)
+  assert.match(await evaluate("document.querySelector('.social-status').textContent"),/Current game state kept/)
+  assert.equal(await evaluate("Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Next turn').disabled"),false)
   assert.deepEqual(errors,[]);console.log('Context rejection pauses without advancing, losing intention, retrying, or supplying fallback actions.')
 
 } finally {
