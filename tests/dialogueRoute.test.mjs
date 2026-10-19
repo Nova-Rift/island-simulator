@@ -83,3 +83,11 @@ test('expanded task allowance preserves prior reservations and permits continued
  const state=await (await bucket.get('island-v1/reservations.json')).json();
  assert.equal(state.tokens,1019636);assert.equal(state.requests,232);
 });
+
+test('schema requests bypass unconstrained cache and reserve schema overhead',async()=>{
+ const settings=env();let calls=0;
+ const provider=async(_url,options)=>{calls++;const body=JSON.parse(options.body);if(calls===2)assert.equal(body.response_format.json_schema.schema.properties.choice.enum[0],1);return Response.json({choices:[{message:{content:'{"choice":1}'},finish_reason:'stop'}]})};
+ const json={...data,json:true};await dialogueRoute(request(json),settings,provider);
+ const schema={type:'object',properties:{choice:{type:'integer',enum:[1]}}};await dialogueRoute(request({...json,schema}),settings,provider);
+ assert.equal(calls,2);await dialogueRoute(request({...json,schema}),settings,provider);assert.equal(calls,2);
+});

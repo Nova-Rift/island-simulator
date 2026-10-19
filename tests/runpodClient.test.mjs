@@ -38,3 +38,10 @@ test('large history is forwarded intact with truncation disabled; provider rejec
  const rejected=createRunpodClient({apiKey:'test-secret',fetchImpl:async()=>new Response('sensitive provider body',{status:400})})
  await assert.rejects(rejected.generate([{role:'user',content}]),e=>e.code==='CONTEXT_LIMIT'&&!e.message.includes('sensitive'))
 });
+
+test('legal-choice schema is forwarded as a strict provider response format',async()=>{
+ const schema={type:'object',properties:{choice:{type:'integer',enum:[0,1]}}};let body;
+ const client=createRunpodClient({apiKey:'test-secret',fetchImpl:async(_,options)=>{body=JSON.parse(options.body);return Response.json({choices:[{message:{content:'{"choice":1}'},finish_reason:'stop'}]})}});
+ await client.generate([{role:'user',content:'Pick'}],true,undefined,schema);
+ assert.deepEqual(body.response_format,{type:'json_schema',json_schema:{name:'legal_action',strict:true,schema}});
+});

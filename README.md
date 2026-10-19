@@ -184,12 +184,17 @@ ledger is NOT billed-token usage: it charges prompt UTF-8 bytes plus overhead an
 maximum output, without refunding failed requests. It can stop much earlier than
 the nominal dollar estimate implies; use Runpod billing for actual charges.
 
-An invalid model decision gets one corrective model request with the complete
-personal observation and exact legal choices. A second invalid choice pauses with
-its rejected action and legal alternatives; it never becomes a rule fallback.
-This extra request uses the same local budget. Service/budget failures are not retried.
+Live decisions now use a strict JSON schema: the model selects a numbered legal
+choice, and the simulator maps it to that exact action. It cannot supply a different
+target or group. This supersedes the one-correction retry approach. The complete
+personal observation remains intact; schemas are included in request limits,
+reservations and cache keys. No unconstrained fallback or automatic retry. Provider
+failures still pause. Constrained output does not guarantee sensible strategy or
+an accurate stated intention.
 
 Inviting someone does not immediately start a conversation. Both people remain
 on their own until acceptance; outstanding invitations appear separately. Chat
 panels require at least two participants. If only one remains, they return to the
 on-their-own area and the transcript stays in history.
+
+Provider integration uses [vLLM structured output response formats](https://docs.vllm.ai/en/stable/examples/features/structured_outputs/).

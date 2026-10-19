@@ -54,13 +54,10 @@ test('irrelevant model fields do not invalidate a legal choice or reach the engi
  assert.throws(()=>parseDecision('{"type":"join","group":4}',join));
 });
 
-test('one corrective model request keeps all personal context and never replaces a choice with rules',async()=>{
- const o=new SocialGame().observe();let calls=[];
- const model={generate:async messages=>{calls.push(messages);return calls.length===1?'Configuration error':JSON.stringify({type:'invite',target:1})}};
- const action=await chooseModelDecision(model,o);assert.equal(action.target,1);assert.equal(calls.length,2);
- const repaired=JSON.parse(calls[1][1].content);const {correction,...personal}=repaired;assert.deepEqual(personal,o);assert.equal(correction.rejectedReply,'Configuration error');
- calls=[];model.generate=async messages=>{calls.push(messages);return '{"type":"invite","target":0}'};
- await assert.rejects(chooseModelDecision(model,o),/correction also failed/);assert.equal(calls.length,2);
- calls=[];model.generate=async messages=>{calls.push(messages);throw Object.assign(Error('budget'),{code:'BUDGET_LIMIT'})};
- await assert.rejects(chooseModelDecision(model,o),e=>e.code==='BUDGET_LIMIT');assert.equal(calls.length,1);
+test('constrained choices map exactly to legal actions and cannot override targets',async()=>{
+ const o=new SocialGame().observe();let calls=0;
+ const model={generate:async(messages,json,schema)=>{calls++;assert.deepEqual(schema.properties.choice.enum,o.legal.map((_,i)=>i));const {choices,...personal}=JSON.parse(messages[1].content);assert.deepEqual(personal,o);return JSON.stringify({choice:1,target:0,group:999,text:'',intention:'Test',reason:''})}};
+ const action=await chooseModelDecision(model,o);assert.equal(action.target,1);assert.equal(action.group,undefined);assert.equal(calls,1);
+ model.generate=async()=>'{"choice":999}';await assert.rejects(chooseModelDecision(model,o),/valid constrained choice/);
+ model.generate=async()=>{throw Object.assign(Error('budget'),{code:'BUDGET_LIMIT'})};await assert.rejects(chooseModelDecision(model,o),e=>e.code==='BUDGET_LIMIT');
 });

@@ -45,7 +45,7 @@ try {
   await delay(3000)
   await evaluate(`window.contextTestCalls=0;const original=window.fetch;window.fetch=async(url,options)=>{
     if(url==='/api/island/status')return Response.json({ready:true});
-    if(url==='/api/island/dialogue'){window.contextTestCalls++;return window.contextTestCalls===1?Response.json({text:JSON.stringify({type:'invite',target:1,intention:'Keep the original plan.'})}):Response.json({code:'CONTEXT_LIMIT'},{status:413})}
+    if(url==='/api/island/dialogue'){window.contextTestCalls++;return window.contextTestCalls===1?Response.json({text:JSON.stringify({choice:1,intention:'Keep the original plan.'})}):Response.json({code:'CONTEXT_LIMIT'},{status:413})}
     return original(url,options)
   }`)
   await evaluate("document.querySelector('.social-paid input').click()")
@@ -62,7 +62,7 @@ try {
   assert.match(await evaluate("document.querySelector('.social-state').textContent"),/turn 0$/)
   await evaluate(`window.fetch=async(url)=>url==='/api/island/status'?Response.json({ready:true}):Response.json({text:'{"type":"say","text":"illegal while alone"}'})`)
   await click('Next turn');await delay(100)
-  assert.match(await evaluate("document.querySelector('[role=alert]').textContent"),/not currently allowed/)
+  assert.match(await evaluate("document.querySelector('[role=alert]').textContent"),/valid constrained choice/)
   assert.match(await evaluate("document.querySelector('.social-state').textContent"),/turn 0$/)
   assert.deepEqual(errors,[]);console.log('Context rejection pauses without advancing, losing intention, retrying, or supplying fallback actions.')
 

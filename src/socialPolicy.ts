@@ -1,6 +1,6 @@
 import { PEOPLE } from './social.mjs'
 import type { Action, Observation, SocialFrame } from './social.mjs'
-export interface SocialModel { generate(messages:{role:'system'|'user';content:string}[],json:boolean):Promise<string>; load():Promise<string>; dispose():void }
+export interface SocialModel { generate(messages:{role:'system'|'user';content:string}[],json:boolean,schema?:Record<string,unknown>):Promise<string>; load():Promise<string>; dispose():void }
 const same=(a:Action,b:Action)=>a.type===b.type&&a.target===b.target&&a.group===b.group
 export function parseDecision(text:string,observation:Observation):Action {
  const data=JSON.parse(text) as Action
@@ -60,15 +60,15 @@ export function gameReviewPrompt(frame:SocialFrame,agent:number) {
  {role:'user' as const,content:JSON.stringify({player:agent,game:frame})}]
 }
 
-export async function chooseModelDecision(model:SocialModel,observation:Observation,startingPrompt=DEFAULT_STARTING_PROMPT,onRepair=()=>{}):Promise<Action>{
+export async function chooseModelDecision(model:SocialModel,observation:Observation,startingPrompt=DEFAULT_STARTING_PROMPT):Promise<Action>{
+ const choices=observation.legal.map((action,choice)=>({choice,action}))
+ const schema={type:'object',properties:{choice:{type:'integer',enum:choices.map(c=>c.choice)},text:{type:'string',maxLength:180},intention:{type:'string',maxLength:180},reason:{type:'string',maxLength:180}},required:['choice','text','intention','reason'],additionalProperties:false}
  const messages=decisionPrompt(observation,startingPrompt)
- const first=await model.generate(messages,true)
- try{return parseDecision(first,observation)}catch(error){
-  onRepair()
-  const correction={rejectedReply:first,feedback:error instanceof Error?error.message:'Invalid JSON decision.',instruction:'Choose exactly one object from legal. Copy its type and target/group exactly; do not choose an already pending invitation. Add intention; for say add text; for vote add reason. Return JSON only.'}
-  // Keep the full personal observation, but change the request so an invalid
-  // cached choice is not replayed. Exactly one correction; never a rule fallback.
-  const corrected=await model.generate([messages[0],{role:'user',content:JSON.stringify({...observation,correction})}],true)
-  try{return parseDecision(corrected,observation)}catch(finalError){throw Object.assign(new Error(`The model's correction also failed. ${finalError instanceof Error?finalError.message:'Invalid JSON decision.'}`),{code:'INVALID_ACTION'})}
- }
+ messages[0].content+=' Output format for this decision: choose one numbered entry from choices. Return JSON with choice (the exact integer), intention, text (only for say, otherwise empty), and reason (only for vote, otherwise empty). The choice maps to the full action; do not output type, target or group.'
+ messages[1].content=JSON.stringify({...observation,choices})
+ const raw=await model.generate(messages,true,schema)
+ let data
+ try{data=JSON.parse(raw)}catch{throw Object.assign(Error('Constrained decision was not valid JSON.'),{code:'INVALID_ACTION'})}
+ if(!Number.isInteger(data?.choice)||data.choice<0||data.choice>=choices.length)throw Object.assign(Error('The provider did not return a valid constrained choice.'),{code:'INVALID_ACTION'})
+ return parseDecision(JSON.stringify({...choices[data.choice].action,text:data.text,intention:data.intention,reason:data.reason}),observation)
 }

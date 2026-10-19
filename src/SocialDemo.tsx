@@ -53,7 +53,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    setStatus(`${PEOPLE[actor]} is ${g.phase==='vote'?'choosing a vote':'deciding what to do'}…`)
    let action:Action,source='scripted'
    if(paid){
-    try{action=await chooseModelDecision(model.current!,observation,startingPrompt,()=>{if(active())setStatus(`${PEOPLE[actor]} is correcting an invalid choice…`)});source='llm'}
+    try{action=await chooseModelDecision(model.current!,observation,startingPrompt);source='llm'}
     catch(e){if(!active())return;throw Object.assign(e instanceof Error?e:new Error('Invalid decision'),{code:(e as {code?:string})?.code||'INVALID_ACTION'})}
    }else action=scriptedDecision(observation)
    if(!active())return
@@ -100,7 +100,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    <label htmlFor="agent-starting-prompt">Instructions shared by all live agents</label>
    <textarea id="agent-starting-prompt" value={startingPrompt} disabled={busy||playing} onChange={e=>setStartingPrompt(e.target.value)} spellCheck={false}/>
    <p>Use {'{name}'} for each agent’s name. Changes apply to subsequent live decisions; reset the game to start everyone with the new prompt. Scripted mode does not use it.</p>
-   <p>Each decision also includes that agent’s game state, legal actions and full personal history. Post-conversation assessments use a separate prompt.</p>
+   <p>Each decision also includes that agent’s game state, legal actions and full personal history. A fixed output-format instruction asks the model to choose a numbered legal action. Post-conversation assessments use a separate prompt.</p>
    <button type="button" disabled={busy||playing} onClick={()=>setStartingPrompt(DEFAULT_STARTING_PROMPT)}>Restore default prompt</button>
    {(busy||playing)&&<p>Pause to edit the prompt.</p>}
    {!startingPrompt.trim()&&<p role="alert">Enter a prompt before starting.</p>}

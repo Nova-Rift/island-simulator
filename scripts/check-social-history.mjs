@@ -53,8 +53,8 @@ try {
     throw Error('Unexpected fetch '+url)
   };window.fetch=async(url,options)=>{
     if(url==='/api/island/status')return Response.json({ready:true});
-    const input=JSON.parse(options.body);window.lastPrompt=input.messages[0].content;
-    return Response.json({text:JSON.stringify(input.messages[0].content.includes('Assess your situation')?{summary:'My ally may help, but I remain vulnerable.',winProbability:0.42}:window.mockActions.shift())})
+    const input=JSON.parse(options.body);window.lastPrompt=input.messages[0].content;const observation=JSON.parse(input.messages[1].content);let action;if(input.schema){action=window.mockActions.shift();action={choice:observation.choices.find(c=>c.action.type===action.type&&c.action.target===action.target&&(c.action.group===undefined||c.action.group===action.group)).choice,text:action.text||'',reason:action.reason||'',intention:action.intention||''}};
+    return Response.json({text:JSON.stringify(input.messages[0].content.includes('Assess your situation')?{summary:'My ally may help, but I remain vulnerable.',winProbability:0.42}:action)})
   }`)
   await evaluate("document.querySelector('.social-paid input').click()")
   await delay(100)

@@ -11,6 +11,7 @@ const jsonResponse = (data, status = 200) => Response.json(data, { status, heade
 
 export function validateDialogue(data) {
   if (!data || typeof data.json !== 'boolean' || !Array.isArray(data.messages) || data.messages.length !== 2) return false
+  if(data.schema!==undefined && (!data.json||!data.schema||typeof data.schema!=='object'||Array.isArray(data.schema)))return false
   const [system, user] = data.messages
   if (system?.role !== 'system' || user?.role !== 'user' || typeof system.content !== 'string' || typeof user.content !== 'string') return false
   if (!system.content.trim() || !user.content.trim()) return false
@@ -65,22 +66,22 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
     raw = JSON.parse(new TextDecoder().decode(bytes))
   } catch { return jsonResponse({ error: 'Invalid JSON' }, 400) }
   if (!validateDialogue(raw)) return jsonResponse({ error: 'Invalid dialogue request.',code:'INVALID_REQUEST' }, 400)
-  const { messages, json } = raw
-  const canonical = JSON.stringify({ model: MODEL, contextPolicy:'full-history-v1', messages, json })
+  const { messages, json, schema } = raw
+  const canonical = JSON.stringify({ model: MODEL, contextPolicy:'full-history-v1', messages, json, ...(schema?{schema}:{}) })
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(canonical))
   const cacheKey = 'island-v1/dialogue/' + Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')
   try {
     const cached = await env.BUCKET.get(cacheKey)
     if (cached) return jsonResponse({ text: await cached.text(), cached: true })
     // Budget is atomic across isolates/visitors; if storage is unavailable, fail closed.
-    const reservation=encoder.encode(JSON.stringify(messages)).length + 1024 + MAX_OUTPUT_TOKENS
+    const reservation=encoder.encode(JSON.stringify({messages,schema})).length + 1024 + MAX_OUTPUT_TOKENS
     if (!await reserveBudget(env.BUCKET, reservation)) {
       const ledger=await env.BUCKET.get(BUDGET_KEY),used=ledger?(await ledger.json()).tokens:0
       const exhausted=used+reservation>TOKEN_BUDGET
       return jsonResponse({error:exhausted?'Local conversation allowance reached.':'Too many requests right now.',code:exhausted?'BUDGET_LIMIT':'RATE_LIMIT'},429)
     }
     const client = createRunpodClient({ apiKey: env.RUNPOD_INFERENCE_KEY, fetchImpl })
-    const text = await client.generate(messages, json, request.signal)
+    const text = await client.generate(messages, json, request.signal, schema)
     if (json) JSON.parse(text)
     await env.BUCKET.put(cacheKey, text, { httpMetadata: { contentType: 'text/plain' } })
     return jsonResponse({ text, cached: false })

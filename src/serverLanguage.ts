@@ -8,10 +8,10 @@ export class ServerLanguageModel implements IslandLanguageModel {
     if (!response.ok) throw new Error('Server conversations are temporarily unavailable.')
     return 'Runpod AI'
   }
-  async generate(messages: ChatMessage[], json: boolean) {
+  async generate(messages: ChatMessage[], json: boolean, schema?:Record<string,unknown>) {
     const response = await fetch('/api/island/dialogue', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, json }), credentials: 'same-origin',
+      body: JSON.stringify({ messages, json, ...(schema?{schema}:{}) }), credentials: 'same-origin',
       signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(125000)]),
     })
     if (!response.ok) {
