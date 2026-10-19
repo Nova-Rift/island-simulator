@@ -53,8 +53,11 @@ try {
     throw Error('Unexpected fetch '+url)
   };window.fetch=async(url,options)=>{
     if(url==='/api/island/status')return Response.json({ready:true});
-    const input=JSON.parse(options.body);window.lastPrompt=input.messages[0].content;const observation=JSON.parse(input.messages[1].content);let action;if(input.schema){action=window.mockActions.shift();action={choice:observation.choices.find(c=>c.action.type===action.type&&c.action.target===action.target&&(c.action.group===undefined||c.action.group===action.group)).choice,text:action.text||'',reason:action.reason||'',intention:action.intention||''}};
-    return Response.json({text:JSON.stringify(input.messages[0].content.includes('Assess your situation')?{summary:'My ally may help, but I remain vulnerable.',winProbability:0.42}:action)})
+    const input=JSON.parse(options.body);window.lastPrompt=input.messages[0].content;const observation=JSON.parse(input.messages[1].content);let output;
+    if(input.schema){const action=window.mockActions.shift();window.lastAction=action;output=observation.choices.find(c=>c.action.type===action.type&&c.action.target===action.target&&(c.action.group===undefined||c.action.group===action.group)).choice}
+    else if(observation.selectedAction)output={text:window.lastAction.text||'',reason:window.lastAction.reason||''};
+    else output={summary:'My ally may help, but I remain vulnerable.',winProbability:0.42};
+    return Response.json({text:JSON.stringify(output)})
   }`)
   await evaluate("document.querySelector('.social-paid input').click()")
   await delay(100)

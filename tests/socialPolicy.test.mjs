@@ -56,8 +56,8 @@ test('irrelevant model fields do not invalidate a legal choice or reach the engi
 
 test('constrained choices map exactly to legal actions and cannot override targets',async()=>{
  const o=new SocialGame().observe();let calls=0;
- const model={generate:async(messages,json,schema)=>{calls++;assert.deepEqual(schema.properties.choice.enum,o.legal.map((_,i)=>i));const {choices,...personal}=JSON.parse(messages[1].content);assert.deepEqual(personal,o);return JSON.stringify({choice:1,target:0,group:999,text:'',intention:'Test',reason:''})}};
+ const model={generate:async(messages,json,schema)=>{calls++;assert.deepEqual(schema.enum,o.legal.map((_,i)=>i));const {choices,...personal}=JSON.parse(messages[1].content);assert.deepEqual(personal,o);return '1'}};
  const action=await chooseModelDecision(model,o);assert.equal(action.target,1);assert.equal(action.group,undefined);assert.equal(calls,1);
- model.generate=async()=>'{"choice":999}';await assert.rejects(chooseModelDecision(model,o),/valid constrained choice/);
+ model.generate=async()=>'999';await assert.rejects(chooseModelDecision(model,o),/valid constrained choice/);
  model.generate=async()=>{throw Object.assign(Error('budget'),{code:'BUDGET_LIMIT'})};await assert.rejects(chooseModelDecision(model,o),e=>e.code==='BUDGET_LIMIT');
 });

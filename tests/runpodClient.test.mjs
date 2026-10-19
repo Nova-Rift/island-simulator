@@ -7,9 +7,9 @@ test('server transport pins Runpod origin, bounds output, and keeps credential i
     request={url,options};return Response.json({choices:[{message:{content:'Theo, can we share food?'}}]})
   }})
   assert.equal(await client.generate([{role:'user',content:'Speak.'}]),'Theo, can we share food?')
-  assert.equal(request.url,'https://api.runpod.ai/v2/test-endpoint/openai/v1/chat/completions')
+  assert.equal(request.url,'https://api.runpod.ai/v2/test-endpoint/runsync')
   assert.equal(request.options.headers.Authorization,'Bearer test-secret')
-  assert.equal(JSON.parse(request.options.body).max_tokens,96)
+  assert.equal(JSON.parse(request.options.body).input.openai_input.max_tokens,96)
   assert.ok(!request.options.body.includes('test-secret'))
   assert.throws(()=>createRunpodClient({apiKey:'test-secret',endpointId:'https://other.invalid'}))
 })
@@ -33,7 +33,7 @@ test('JSON fences are normalized; truncated responses never become successful st
 })
 test('large history is forwarded intact with truncation disabled; provider rejection is explicit and private',async()=>{
  const content='EARLIEST_MEMORY '+ 'historical context '.repeat(1800)+' LAST_MEMORY';let request
- const client=createRunpodClient({apiKey:'test-secret',fetchImpl:async(_url,options)=>{request=JSON.parse(options.body);return Response.json({choices:[{message:{content:'ok'},finish_reason:'stop'}]})}})
+ const client=createRunpodClient({apiKey:'test-secret',fetchImpl:async(_url,options)=>{request=JSON.parse(options.body).input.openai_input;return Response.json({choices:[{message:{content:'ok'},finish_reason:'stop'}]})}})
  await client.generate([{role:'user',content}]);assert.equal(request.messages[0].content,content);assert.equal(request.truncate_prompt_tokens,null)
  const rejected=createRunpodClient({apiKey:'test-secret',fetchImpl:async()=>new Response('sensitive provider body',{status:400})})
  await assert.rejects(rejected.generate([{role:'user',content}]),e=>e.code==='CONTEXT_LIMIT'&&!e.message.includes('sensitive'))
@@ -41,7 +41,15 @@ test('large history is forwarded intact with truncation disabled; provider rejec
 
 test('legal-choice schema is forwarded as a strict provider response format',async()=>{
  const schema={type:'object',properties:{choice:{type:'integer',enum:[0,1]}}};let body;
- const client=createRunpodClient({apiKey:'test-secret',fetchImpl:async(_,options)=>{body=JSON.parse(options.body);return Response.json({choices:[{message:{content:'{"choice":1}'},finish_reason:'stop'}]})}});
+ const client=createRunpodClient({apiKey:'test-secret',fetchImpl:async(_,options)=>{body=JSON.parse(options.body).input.openai_input;return Response.json({choices:[{message:{content:'{"choice":1}'},finish_reason:'stop'}]})}});
  await client.generate([{role:'user',content:'Pick'}],true,undefined,schema);
  assert.deepEqual(body.response_format,{type:'json_schema',json_schema:{name:'legal_action',strict:true,schema}});
+});
+
+test('native Runpod job polling extracts completion and uses eight tokens for numeric choices',async()=>{
+ const calls=[];const client=createRunpodClient({apiKey:'test-secret',endpointId:'test',fetchImpl:async(url,options)=>{
+  calls.push({url,options});return calls.length===1?Response.json({id:'test-job',status:'IN_PROGRESS'}):Response.json({status:'COMPLETED',output:[{choices:[{message:{content:'1'},finish_reason:'stop'}]}]})
+ }});
+ assert.equal(await client.generate([{role:'user',content:'Choose'}],true,undefined,{type:'integer',enum:[0,1]}),'1');
+ assert.equal(calls.length,2);assert.equal(calls[1].url,'https://api.runpod.ai/v2/test/status/test-job');assert.equal(JSON.parse(calls[0].options.body).input.openai_input.max_tokens,8);
 });

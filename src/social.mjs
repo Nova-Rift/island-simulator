@@ -5,13 +5,13 @@ const copy = value => structuredClone(value);
 const brief = value => typeof value === 'string' ? value.trim().slice(0,180) : '';
 
 export class SocialGame {
-  constructor({seed=0,rounds=4}={}) {
+  constructor({seed=0,rounds=4,concurrent=false}={}) {
     if (!Number.isInteger(seed) || !Number.isInteger(rounds) || rounds<1 || rounds>12) throw new RangeError('Invalid social game options');
-    this.seed=seed; this.rounds=rounds; this.reset();
+    this.seed=seed; this.rounds=rounds; this.concurrent=concurrent; this.reset();
   }
   reset() {
     this.alive=PEOPLE.map(()=>true); this.groups=[]; this.nextGroup=1;
-    this.turn=0; this.round=1; this.cycle=1; this.phase='social'; this.cursor=0;
+    this.actionCounts=PEOPLE.map(()=>0); this.turn=0; this.round=1; this.cycle=1; this.phase='social'; this.cursor=0;
     this.socialHistory=PEOPLE.map(()=>[]); this.knownGroups=PEOPLE.map(()=>new Set()); this.memories=PEOPLE.map(()=>[]); this.decisions=PEOPLE.map(()=>[]); this.intentions=PEOPLE.map(()=>[]); this.summaries=PEOPLE.map(()=> 'No conversation yet.');
     this.statuses=PEOPLE.map(()=> 'On their own'); this.events=[]; this.ballots=[]; this.councils=[];
     this.winner=null; this.rewards=PEOPLE.map(()=>0);
@@ -19,13 +19,13 @@ export class SocialGame {
   }
   get remaining() { return this.alive.flatMap((v,i)=>v?[i]:[]); }
   get done() { return this.phase==='finished'; }
-  get current() { return this.done ? null : this.remaining[this.cursor]; }
+  get current() { return this.done ? null : this.concurrent ? (this.remaining.find(id=>this.phase==='vote'?!this.ballots.some(b=>b.voter===id):this.actionCounts[id]<this.rounds)??null) : this.remaining[this.cursor]; }
   groupOf(agent) { return this.groups.find(g=>g.members.includes(agent)); }
   observe(agent=this.current) {
     if (!Number.isInteger(agent) || !this.alive[agent]) throw new RangeError('Inactive agent');
     const group=this.groupOf(agent);
     return {
-      version:SOCIAL_VERSION, agent, name:PEOPLE[agent], cycle:this.cycle, round:this.round, rounds:this.rounds, phase:this.phase,
+      version:SOCIAL_VERSION, agent, name:PEOPLE[agent], cycle:this.cycle, round:this.concurrent&&this.phase==='social'?Math.min(this.rounds,this.actionCounts[agent]+1):this.round, rounds:this.rounds, phase:this.phase,
       remaining:this.remaining.map(id=>({id,name:PEOPLE[id]})),
       // Only current own membership is visible; other groups must be encountered or reported.
       groups:group && group.members.length>1 ? [{id:group.id,members:group.members.slice()}] : [],
@@ -40,6 +40,7 @@ export class SocialGame {
   }
   legalActions(agent=this.current) {
     if (!this.alive[agent] || this.done) return [];
+    if(this.concurrent&&(this.phase==='vote'?this.ballots.some(b=>b.voter===agent):this.actionCounts[agent]>=this.rounds))return [];
     if (this.phase==='vote') return this.remaining.filter(i=>i!==agent).map(target=>({type:'vote',target}));
     const actions=[{type:'pass'}], group=this.groupOf(agent);
     if (group) {
@@ -51,9 +52,10 @@ export class SocialGame {
         if(!proposal)actions.push({type:'exclude',target});
         else if(!proposal.yes.includes(agent)&&!proposal.no.includes(agent))actions.push({type:'agree',target},{type:'reject',target});
       }
-    } else {
-      for(const g of this.groups.filter(g=>g.invited.includes(agent)))actions.push({type:'join',group:g.id},{type:'decline',group:g.id});
-      for(const g of this.groups.filter(g=>this.knownGroups[agent].has(g.id)&&!g.invited.includes(agent)&&!g.blocked.includes(agent)&&!g.requests.some(r=>r.agent===agent)))actions.push({type:'request',group:g.id});
+    }
+    if(!group||group.members.length===1){
+      for(const g of this.groups.filter(g=>g!==group&&g.invited.includes(agent)))actions.push({type:'join',group:g.id},{type:'decline',group:g.id});
+      for(const g of this.groups.filter(g=>g!==group&&this.knownGroups[agent].has(g.id)&&!g.invited.includes(agent)&&!g.blocked.includes(agent)&&!g.requests.some(r=>r.agent===agent)))actions.push({type:'request',group:g.id});
     }
     for(const target of this.remaining.filter(i=>i!==agent && !group?.members.includes(i))) {
       if(!group || (!group.invited.includes(target)&&!group.blocked.includes(target)))actions.push({type:'invite',target});
@@ -70,16 +72,25 @@ export class SocialGame {
     if(group.members.length===1)this.statuses[group.members[0]]=group.invited.length?'Waiting for an invitation reply':'On their own';
     if(!group.members.length)this.groups=this.groups.filter(g=>g!==group);
   }
+  withdrawPending(agent,destination){
+    const old=this.groupOf(agent);if(!old||old===destination)return;
+    if(old.members.length>1)throw new RangeError('Leave existing conversation first');
+    const recipients=[agent,...old.invited],text=`${PEOPLE[agent]} withdrew pending invitations for conversation ${old.id} to join another conversation.`;
+    this.remember(recipients,text);
+    for(const id of recipients)this.socialHistory[id].push({turn:this.turn,cycle:this.cycle,round:this.round,conversation:old.id,actor:agent,target:agent,type:'withdraw',outcome:'cancelled',text,evidence:'direct notification'});
+    this.removeMember(old,agent);
+  }
   setSummary(agent,text) { if(this.alive[agent] && brief(text)){this.summaries[agent]=brief(text);this.intentions[agent].push({turn:this.turn,cycle:this.cycle,text:brief(text)});} }
-  step(action,source='scripted') {
+  step(action,source='scripted',actor=this.current) {
     if(this.done)throw new Error('Game finished');
-    const actor=this.current;
+    if(!this.concurrent&&actor!==this.current)throw new RangeError('Out-of-turn action');
     const chosen=this.legalActions(actor).find(a=>a.type===action?.type && a.target===action.target && a.group===action.group);
     if(!chosen || (chosen.type==='say'&&!brief(action.text)))throw new RangeError('Illegal social action');
     if(!['scripted','llm','fallback','agent'].includes(source))throw new RangeError('Unknown action source');
     let group=this.groupOf(actor), audience=[actor], text='', listeners=[];
     const name=PEOPLE[actor], target=chosen.target;
     const pendingRequests=this.groups.flatMap(g=>g.requests.map(r=>({conversation:g.id,agent:r.agent,members:g.members.slice()})));
+    if(this.concurrent&&this.phase==='social')this.round=this.actionCounts[actor]+1;
     this.turn++;
     this.setSummary(actor,action.intention);
     this.decisions[actor].push({turn:this.turn,cycle:this.cycle,round:this.round,action:{...chosen,...(chosen.type==='say'?{text:brief(action.text)}:{}),...(chosen.type==='vote'?{reason:brief(action.reason)}:{})},source});
@@ -90,7 +101,7 @@ export class SocialGame {
         text=`${name} invites ${PEOPLE[target]} to conversation ${group.id}.`;
         this.statuses[actor]=group.members.length===1?'Waiting for an invitation reply':'Inviting someone';break;
       case 'join':
-        group=this.groups.find(g=>g.id===chosen.group);group.members.push(actor);group.proposals=[];group.requests=[];
+        group=this.groups.find(g=>g.id===chosen.group);this.withdrawPending(actor,group);group.members.push(actor);group.proposals=[];group.requests=[];
         for(const g of this.groups){g.invited=g.invited.filter(i=>i!==actor);g.requests=g.requests.filter(r=>r.agent!==actor);}
         audience=group.members.slice();text=`${name} accepts the invitation to conversation ${group.id}.`;for(const id of group.members)this.statuses[id]='In a conversation';break;
       case 'request':
@@ -103,7 +114,7 @@ export class SocialGame {
         }else{
           request.yes.push(actor);text=`${name} supports admitting ${PEOPLE[target]} to conversation ${group.id}.`;
           if(group.members.every(id=>request.yes.includes(id))){
-            group.members.push(target);group.proposals=[];group.requests=[];
+            this.withdrawPending(target,group);group.members.push(target);group.proposals=[];group.requests=[];
             for(const g of this.groups){g.invited=g.invited.filter(i=>i!==target);g.requests=g.requests.filter(r=>r.agent!==target);}
             text+=` Accepted by ${request.yes.map(id=>PEOPLE[id]).join(', ')}; ${PEOPLE[target]} joins.`;for(const id of group.members)this.statuses[id]='In a conversation';
           }
@@ -159,11 +170,19 @@ export class SocialGame {
       }
     }
     this.events.push(event);
-    this.cursor++;
-    if(this.cursor>=this.remaining.length){
-      this.cursor=0;
-      if(this.phase==='social') {if(this.round===this.rounds)this.phase='vote';else this.round++;}
-      else this.finishVote();
+    if(this.concurrent){
+      if(this.phase==='social'){
+        this.actionCounts[actor]++;
+        this.round=Math.min(this.rounds,Math.min(...this.remaining.map(id=>this.actionCounts[id]))+1);
+        if(this.remaining.every(id=>this.actionCounts[id]>=this.rounds))this.phase='vote';
+      }else if(this.ballots.length===this.remaining.length)this.finishVote();
+    }else{
+      this.cursor++;
+      if(this.cursor>=this.remaining.length){
+        this.cursor=0;
+        if(this.phase==='social') {if(this.round===this.rounds)this.phase='vote';else this.round++;}
+        else this.finishVote();
+      }
     }
     return {event:copy(event),listeners,frame:this.frame()};
   }
@@ -177,13 +196,13 @@ export class SocialGame {
       const recipients=[...new Set([...group.members,request.agent])];this.remember(recipients,text);
       for(const id of recipients)this.socialHistory[id].push({turn:this.turn,cycle:this.cycle,round:this.round,conversation:group.id,actor:null,target:request.agent,type:'cancel',outcome:'cancelled',text,evidence:'direct notification'});
     }
-    this.alive[eliminated]=false;this.statuses[eliminated]='Voted out';this.groups=[];this.ballots=[];this.round=1;
+    this.alive[eliminated]=false;this.statuses[eliminated]='Voted out';this.groups=[];this.ballots=[];this.round=1;this.actionCounts=PEOPLE.map(()=>0);
     this.remember(this.remaining,`${PEOPLE[eliminated]} was voted out.`);
     if(this.remaining.length===1){this.phase='finished';this.winner=this.remaining[0];this.rewards[this.winner]=1;}
     else{this.phase='social';this.cycle++;}
   }
   frame() {
-    return copy({version:SOCIAL_VERSION,seed:this.seed,turn:this.turn,cycle:this.cycle,round:this.round,rounds:this.rounds,
+    return copy({version:SOCIAL_VERSION,seed:this.seed,concurrent:this.concurrent,actionCounts:this.actionCounts,turn:this.turn,cycle:this.cycle,round:this.round,rounds:this.rounds,
       phase:this.phase,current:this.current,alive:this.alive,groups:this.groups.filter(g=>g.members.length>1),pendingConversations:this.groups.filter(g=>g.members.length===1),summaries:this.summaries,statuses:this.statuses,
       events:this.events,councils:this.councils,winner:this.winner,rewards:this.rewards});
   }

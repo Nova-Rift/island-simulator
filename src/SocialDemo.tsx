@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { PEOPLE, SocialGame } from './social.mjs'
-import type { Action, SocialFrame, Event } from './social.mjs'
+import type { SocialFrame, Event } from './social.mjs'
 import { scriptedDecision, summaryPrompt, parseAssessment, DEFAULT_STARTING_PROMPT, gameReviewPrompt, chooseModelDecision } from './socialPolicy'
 import type { SocialModel } from './socialPolicy'
+import { SocialRunner } from './socialRunner.mjs'
 import './social.css'
 
 type Assessment={summary:string;winProbability:number|null;turn:number;cycle:number;group:number|null;source:string}
@@ -19,13 +20,16 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
  const reviewBusy=useRef(false)
  const [waitingSeconds,setWaitingSeconds]=useState(0)
  useEffect(()=>{if(!busy&&!reviewing){setWaitingSeconds(0);return}const start=Date.now();const timer=setInterval(()=>setWaitingSeconds(Math.floor((Date.now()-start)/1000)),1000);return()=>clearInterval(timer)},[busy,reviewing])
+ const runner=useRef<SocialRunner|null>(null),promptRef=useRef(startingPrompt),speedRef=useRef(speed)
+ promptRef.current=startingPrompt;speedRef.current=speed
+ const [workingAgents,setWorkingAgents]=useState<number[]>([])
  const latest=frame.events.at(-1)
  const conversations=Array.from(new Set(frame.events.filter(e=>e.group!==null).map(e=>`${e.cycle}:${e.group}`)))
  const history=frame.events.filter(e=>e.group!==null && (historyGroup==='all'||`${e.cycle}:${e.group}`===historyGroup) && (historyAgent==='all'||e.audience.includes(Number(historyAgent))))
- function pause(){running.current=false;setPlaying(false)}
- function stopWaiting(){generation.current++;pause();model.current?.dispose();model.current=null;setBusy(false);setReviewing(false);reviewBusy.current=false;setStatus('Stopped waiting. Current game state kept.');setError('')}
- function reset(){generation.current++;pause();model.current?.dispose();model.current=null;game.current=new SocialGame();setFrame(game.current.frame());setBusy(false);setError('');setStatus('Ready to start.');setAssessments({});setHistoryGroup('all');setHistoryAgent('all');setReviews({});setReviewErrors({});setReviewing(false);reviewBusy.current=false}
- useEffect(()=>()=>{generation.current++;model.current?.dispose()},[])
+ function pause(){running.current=false;setPlaying(false);runner.current?.pause()}
+ function stopWaiting(){setWorkingAgents([]);generation.current++;runner.current?.stop();runner.current=null;pause();model.current?.dispose();model.current=null;setBusy(false);setReviewing(false);reviewBusy.current=false;setStatus('Stopped waiting. Current game state kept.');setError('')}
+ function reset(live=paid){setWorkingAgents([]);generation.current++;runner.current?.stop();runner.current=null;pause();model.current?.dispose();model.current=null;game.current=new SocialGame({concurrent:live});setFrame(game.current.frame());setBusy(false);setError('');setStatus('Ready to start.');setAssessments({});setHistoryGroup('all');setHistoryAgent('all');setReviews({});setReviewErrors({});setReviewing(false);reviewBusy.current=false}
+ useEffect(()=>()=>{generation.current++;runner.current?.stop();model.current?.dispose()},[])
  async function reviewGame(finalFrame:SocialFrame){
   if(!makeModel||finalFrame.phase!=='finished'||reviewBusy.current)return
   const id=generation.current,active=()=>generation.current===id
@@ -34,62 +38,64 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    if(!model.current){model.current=makeModel();await model.current.load()}
    if(!active())return
    const reviewer=model.current
-   for(let agent=0;agent<PEOPLE.length;agent++){
+   await Promise.all(PEOPLE.map(async(_,agent)=>{
     if(!active())return
-    if(reviews[agent])continue
+    if(reviews[agent])return
     try{
      const data=JSON.parse(await reviewer.generate(gameReviewPrompt(finalFrame,agent),true))
      if(typeof data.summary!=='string'||!data.summary.trim())throw new Error('Invalid recap')
      if(active())setReviews(previous=>({...previous,[agent]:data.summary.trim().slice(0,500)}))
     }catch(e){if(active())setReviewErrors(previous=>({...previous,[agent]:(e as {code?:string})?.code==='CONTEXT_LIMIT'?'Full game record could not fit; no history was trimmed.':'Review unavailable. You can retry.'}))}
-   }
+   }))
   }catch{if(active())setReviewErrors({0:'Could not connect to the local model. You can retry.'})}
   finally{if(active()){reviewBusy.current=false;setReviewing(false)}}
  }
- async function advance(){
-  if(busy||game.current.done||!startingPrompt.trim())return
+ async function startLive(continuous=true){
+  if(!startingPrompt.trim()||game.current.done)return
   const id=generation.current,g=game.current,active=()=>generation.current===id
-  setBusy(true);setError('')
+  setError('');setBusy(true)
   try{
-   if(paid && !model.current){const m=makeModel!();model.current=m;setStatus('Connecting to your local Runpod server…');await m.load();if(!active())return}
-   const actor=g.current!,observation=g.observe(actor)
-   setStatus(`${PEOPLE[actor]} is ${g.phase==='vote'?'choosing a vote':'deciding what to do'}…`)
-   let action:Action,source='scripted'
-   if(paid){
-    try{action=await chooseModelDecision(model.current!,observation,startingPrompt);source='llm'}
-    catch(e){if(!active())return;throw Object.assign(e instanceof Error?e:new Error('Invalid decision'),{code:(e as {code?:string})?.code||'INVALID_ACTION'})}
-   }else action=scriptedDecision(observation)
+   if(!model.current){model.current=makeModel!();await model.current.load()}
    if(!active())return
-   const result=g.step(action,source);setFrame(result.frame)
-   setStatus(result.event.type==='say'?`${PEOPLE[actor]} is speaking to their group.`:result.event.text)
-   if(result.event.type==='say'){
-    await Promise.all([actor,...result.listeners].map(async listener=>{
-     let assessment:Assessment={summary:'I am discussing the vote with this group; their support is not guaranteed.',winProbability:null,turn:result.event.turn,cycle:result.event.cycle,group:result.event.group,source:paid?'AI self-assessment':'Scripted example'}
-     if(paid){
-      try{assessment={...assessment,...parseAssessment(await model.current!.generate(summaryPrompt(g.observe(listener)),true))}}
-      catch(e){if((e as {code?:string})?.code)throw e;assessment={...assessment,summary:'Assessment unavailable for this exchange.',source:'Unavailable'}}
-     }
-     if(active()){
-      g.setSummary(listener,assessment.summary)
-      setAssessments(previous=>({...previous,[listener]:assessment}))
-     }
-    }))
-    if(!active())return
-    setFrame(g.frame())
-   }
-   if(g.done){pause();if(paid)await reviewGame(g.frame())}
-  }catch(e){if(active()){pause();model.current?.dispose();model.current=null;setError((e as {code?:string})?.code==='INVALID_ACTION'?`Paused: ${e instanceof Error?e.message:'Invalid decision.'} No rule fallback was used.`:modelFailureMessage((e as {code?:string})?.code))}}
-  finally{if(active())setBusy(false)}
+   if(!runner.current)runner.current=new SocialRunner({game:g,
+    decide:o=>chooseModelDecision(model.current!,o,promptRef.current),
+    onBusy:actors=>{if(active()){setWorkingAgents(actors);setBusy(actors.length>0);if(actors.length)setStatus(`${actors.map(i=>PEOPLE[i]).join(', ')} — independent conversations / solo decisions`) }},
+    onEvent:result=>{if(active()){setFrame(result.frame);setStatus(result.event.text)}},
+    assess:async result=>{
+     await Promise.all([result.event.actor,...result.listeners].map(async listener=>{
+      const response=await model.current!.generate(summaryPrompt(g.observe(listener)),true)
+      if(!active())return
+      let assessment:Assessment={summary:'Assessment unavailable for this exchange.',winProbability:null,turn:result.event.turn,cycle:result.event.cycle,group:result.event.group,source:'Unavailable'}
+      try{assessment={...assessment,...parseAssessment(response),source:'AI self-assessment'}}catch{}
+      g.setSummary(listener,assessment.summary);setAssessments(previous=>({...previous,[listener]:assessment}))
+     }));if(active())setFrame(g.frame())
+    },
+    onError:e=>{if(active()){generation.current++;pause();runner.current=null;model.current?.dispose();model.current=null;setBusy(false);setError((e as {code?:string})?.code==='INVALID_ACTION'?`Paused: ${e instanceof Error?e.message:'Invalid decision.'}`:modelFailureMessage((e as {code?:string})?.code))}},
+    onDone:finalFrame=>{if(active()){pause();void reviewGame(finalFrame)}},
+    delay:()=>1300/speedRef.current,
+   })
+   runner.current.start(continuous)
+  }catch(e){if(active()){pause();setBusy(false);setError(modelFailureMessage((e as {code?:string})?.code))}}
+ }
+ function advance(){
+  if(paid){void startLive(false);return}
+  const g=game.current;if(g.done)return
+  const result=g.step(scriptedDecision(g.observe()),'scripted')
+  if(result.event.type==='say')for(const listener of [result.event.actor,...result.listeners]){
+   const assessment:Assessment={summary:'I am discussing the vote with this group; their support is not guaranteed.',winProbability:null,turn:result.event.turn,cycle:result.event.cycle,group:result.event.group,source:'Scripted example'}
+   g.setSummary(listener,assessment.summary);setAssessments(previous=>({...previous,[listener]:assessment}))
+  }
+  setFrame(g.frame());setStatus(result.event.text);if(g.done)pause()
  }
  useEffect(()=>{
-  if(!playing||busy||frame.phase==='finished')return
+  if(paid||!playing||busy||frame.phase==='finished')return
   const timer=setTimeout(()=>{if(running.current)void advance()},1300/speed)
   return()=>clearTimeout(timer)
  },[playing,busy,frame.turn,speed])
- function toggle(){if(playing)pause();else{running.current=true;setPlaying(true)}}
+ function toggle(){if(playing)pause();else{running.current=true;setPlaying(true);if(paid)void startLive()}}
  function person(agent:number){
   const pending=frame.groups.filter(g=>g.requests.some(r=>r.agent===agent)).map(g=>g.id)
-  return <div key={agent} className={`social-person${frame.current===agent?' is-next':''}`} data-agent={agent}>
+  return <div key={agent} className={`social-person${(paid?workingAgents.includes(agent):frame.current===agent)?' is-next':''}`} data-agent={agent}>
    <div className="social-avatar" style={{color:`hsl(${agent*45},45%,35%)`}} aria-hidden="true"><svg viewBox="0 0 42 52"><circle cx="21" cy="12" r="9" fill="currentColor"/><path d="M6 49V35a15 15 0 0 1 30 0v14" fill="currentColor"/></svg></div>
    <strong>{PEOPLE[agent]}</strong><span title={frame.statuses[agent]}>{pending.length?`Asked to join #${pending.join(', #')}`:frame.statuses[agent]}</span>
   </div>
@@ -97,7 +103,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
  const alone=frame.alive.flatMap((alive,i)=>alive&&!frame.groups.some(g=>g.members.includes(i))?[i]:[])
  return <section className="social-demo" aria-labelledby="social-title">
   <div className="social-heading"><h2 id="social-title">Conversations & a vote</h2><span>{paid?'Local Runpod · paid':'Scripted example · free'}</span></div>
-  <p className="social-intro">Talk, ask to join, or sit it out. Four rounds, then everyone votes.</p>
+  <p className="social-intro">Talk, ask to join, or sit it out. Four actions each, then everyone votes. Independent conversations run in parallel; messages within each stay sequential.</p>
   <details className="social-prompt">
    <summary>Starting prompt · editable</summary>
    <label htmlFor="agent-starting-prompt">Instructions shared by all live agents</label>
@@ -109,12 +115,12 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    {!startingPrompt.trim()&&<p role="alert">Enter a prompt before starting.</p>}
   </details>
   <div className="social-controls">
-   <button onClick={toggle} disabled={frame.phase==='finished'||!startingPrompt.trim()}>{playing?(busy?'Pause after turn':'Pause'):'Play'}</button>
+   <button onClick={toggle} disabled={frame.phase==='finished'||!startingPrompt.trim()}>{playing?(busy?'Pause after current replies':'Pause'):'Play'}</button>
    <button onClick={()=>void advance()} disabled={playing||busy||frame.phase==='finished'||!startingPrompt.trim()}>Next turn</button>
-   <button onClick={reset}>Reset</button>
+   <button onClick={()=>reset()}>Reset</button>
    {(busy||reviewing)&&<button onClick={stopWaiting}>Stop waiting</button>}
    <label title="Only changes the pause between turns; does not speed up Runpod inference.">Turn speed <select value={speed} onChange={e=>setSpeed(Number(e.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></label>
-   {makeModel&&<label className="social-paid"><input type="checkbox" checked={paid} onChange={e=>{reset();setPaid(e.target.checked)}}/>Use my local Runpod (paid)</label>}
+   {makeModel&&<label className="social-paid"><input type="checkbox" checked={paid} onChange={e=>{reset(e.target.checked);setPaid(e.target.checked)}}/>Use my local Runpod (paid)</label>}
   </div>
   <div className="social-state"><strong>{frame.phase==='finished'?`${PEOPLE[frame.winner!]} wins!`:frame.phase==='vote'?`Vote ${frame.cycle}`:`Round ${frame.round}/4 · vote ${frame.cycle} ahead`}</strong><span>{frame.alive.filter(Boolean).length} remain · turn {frame.turn}</span></div>
   <p className="social-status" role="status">{busy?`Waiting on ${paid?'Runpod':'simulation'} · ${waitingSeconds}s — `:''}{status}{latest?.source==='fallback'?' (Rule fallback)':''}</p>

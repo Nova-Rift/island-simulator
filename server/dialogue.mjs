@@ -6,7 +6,7 @@ const BUDGET_KEY = 'island-v1/reservations.json'
 // template overhead as tokens; reserve BEFORE inference and never refund errors.
 // Durable across deploys. Do not reset this object to silently renew the budget.
 export const TOKEN_BUDGET = 5_000_000
-const RATE_LIMIT = 100
+const RATE_LIMIT = 600
 const jsonResponse = (data, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
 
 export function validateDialogue(data) {
@@ -19,7 +19,7 @@ export function validateDialogue(data) {
 }
 
 export async function reserveBudget(bucket, tokens, now = Date.now()) {
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 32; attempt++) {
     const old = await bucket.get(BUDGET_KEY)
     const state = old ? await old.json() : { tokens: 0, requests: 0, minute: 0, minuteRequests: 0 }
     if (!Number.isSafeInteger(state.tokens) || state.tokens < 0 || !Number.isSafeInteger(tokens) || tokens < 1) throw new Error('Invalid usage ledger')

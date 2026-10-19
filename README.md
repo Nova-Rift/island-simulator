@@ -66,7 +66,7 @@ No full paid game or unlimited-context guarantee is claimed.
 
 ## Optional paid model choices
 
-Create a Runpod inference key restricted to `qwen3-32b-awq` (no management access).
+Create a Runpod inference key restricted to `granite-4-0-h-small` (no management access).
 Save it outside Git in a file owned by you with mode0600, then start:
 
 ```sh
@@ -88,7 +88,7 @@ Ctrl+C stops it.
 
 ## Cost controls
 
-The [published Runpod rate](https://docs.runpod.io/public-endpoints/models/qwen3-32b)
+The [published Runpod rate](https://docs.runpod.io/public-endpoints/models/granite-4)
 was $10/M tokens on October19,2026; verify current pricing before use. Identical
 requests are cached. Each uncached request reserves prompt UTF-8 bytes +1,024
 formatting units +96 output units before inference, deliberately conservative.
@@ -96,7 +96,7 @@ formatting units +96 output units before inference, deliberately conservative.
 The persistent allowance is **5,000,000 reserved units**, conservatively corresponding to the **$50 total task ceiling** at
 that price, not monthly or account-wide. This is a conservative reservation limit,
 not measured billing. The earlier 1,000,000-unit limit was raised on October 19
-when Clark requested unblocking local paid play; previous reservations still count. Maximum100 uncached requests/minute;
+when Clark requested unblocking local paid play; previous reservations still count. Maximum600 uncached requests/minute;
 failures retain reservations and storage failures block inference. Private cache
 and ledger live in ignored `.local/state/`. Preserve them across restarts: deleting
 this directory resets the spending guard. No background generation or retries.
@@ -184,8 +184,9 @@ ledger is NOT billed-token usage: it charges prompt UTF-8 bytes plus overhead an
 maximum output, without refunding failed requests. It can stop much earlier than
 the nominal dollar estimate implies; use Runpod billing for actual charges.
 
-Live decisions now use a strict JSON schema: the model selects a numbered legal
-choice, and the simulator maps it to that exact action. It cannot supply a different
+Live decisions use a tiny strict JSON schema containing only a legal integer
+choice. The simulator maps it to that exact action. Short speech or vote reasons
+are generated separately, without a constrained text schema. It cannot supply a different
 target or group. This supersedes the one-correction retry approach. The complete
 personal observation remains intact; schemas are included in request limits,
 reservations and cache keys. No unconstrained fallback or automatic retry. Provider
@@ -207,3 +208,37 @@ keeps the current game state (a speech already delivered is not rolled back).
 The shared Runpod endpoint can be slow: a live initial-action check took ~64s.
 Schema string-length constraints were removed to simplify decoding; output tokens
 remain capped and displayed text is still bounded. No fast-response guarantee.
+
+
+### Independent conversations
+
+Live games use one independent asynchronous lane per conversation or solo agent.
+Inside a group, each message and its personal assessments finish before the next
+speaker decides. Other groups and solo invitations do not wait. Incoming personal
+information invalidates only the affected pending decision; it is recomputed with
+its complete updated context. No stale action is forced through. Joining merges
+lanes; leaving splits them. A solo inviter can accept a different invitation,
+withdrawing their own outstanding invitations.
+
+Each remaining player gets four social actions before the council. Fast agents
+can reach that quota without waiting for others. Voting begins only after all
+social actions and assessments finish; ballots are private and can be generated
+in parallel. Results are applied atomically as ready, so live order follows actual
+completion, not a fixed global player order. Free scripted walkthroughs retain
+their authored sequential order.
+
+The local provider is IBM Granite 4.0 H Small via Runpod's native runsync API.
+Observed bounded test: three independent choices and two spoken messages finished
+in18.7s total; assessments then took1.1–1.5s. Individual numeric-choice requests
+varied from0.4s in isolation to8.7–10.4s under the concurrent test. This is not a
+latency guarantee or full-game benchmark. Earlier rich constrained responses took
+~120s in that test. No dedicated GPU, persistent worker or public paid endpoint
+was created. Public code needs your own endpoint-restricted key.
+
+
+A subsequent integrated live scheduler check completed12 accepted social actions
+in5.9s, including a join, while unrelated agents proceeded. It started22 requests;
+16 completed before the bound and none was a cache hit. Outstanding requests were
+cancelled at the test bound. No full-game latency claim. End-game player recaps
+also run concurrently. The local request-rate allowance is600/minute to accommodate
+parallel lanes; the persistent5,000,000-unit spending guard is unchanged.

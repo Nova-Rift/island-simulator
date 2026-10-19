@@ -67,7 +67,7 @@ test('budget exhaustion and storage failure fail closed; failures consume their 
 })
 test('over-12KB personal history reaches provider unchanged; context rejection is 413 with no reduced retry',async()=>{
  const settings=env(),long={...data,messages:[data.messages[0],{role:'user',content:'OLDEST '+ 'memory '.repeat(3000)+' NEWEST'}]};let calls=0
- const provider=async(_url,options)=>{calls++;assert.deepEqual(JSON.parse(options.body).messages,long.messages);return new Response('private provider rejection',{status:400})}
+ const provider=async(_url,options)=>{calls++;assert.deepEqual(JSON.parse(options.body).input.openai_input.messages,long.messages);return new Response('private provider rejection',{status:400})}
  const response=await dialogueRoute(request(long),settings,provider);assert.equal(response.status,413);assert.equal((await response.json()).code,'CONTEXT_LIMIT');assert.equal(calls,1)
 });
 
@@ -86,8 +86,13 @@ test('expanded task allowance preserves prior reservations and permits continued
 
 test('schema requests bypass unconstrained cache and reserve schema overhead',async()=>{
  const settings=env();let calls=0;
- const provider=async(_url,options)=>{calls++;const body=JSON.parse(options.body);if(calls===2)assert.equal(body.response_format.json_schema.schema.properties.choice.enum[0],1);return Response.json({choices:[{message:{content:'{"choice":1}'},finish_reason:'stop'}]})};
+ const provider=async(_url,options)=>{calls++;const body=JSON.parse(options.body).input.openai_input;if(calls===2)assert.equal(body.response_format.json_schema.schema.properties.choice.enum[0],1);return Response.json({choices:[{message:{content:'{"choice":1}'},finish_reason:'stop'}]})};
  const json={...data,json:true};await dialogueRoute(request(json),settings,provider);
  const schema={type:'object',properties:{choice:{type:'integer',enum:[1]}}};await dialogueRoute(request({...json,schema}),settings,provider);
  assert.equal(calls,2);await dialogueRoute(request({...json,schema}),settings,provider);assert.equal(calls,2);
+});
+
+test('all eight concurrent agent requests can reserve within budget',async()=>{
+ const bucket=new MemoryBucket();const reservations=await Promise.all(Array.from({length:8},()=>reserveBudget(bucket,5000)));
+ assert.equal(reservations.filter(Boolean).length,8);assert.equal((await(await bucket.get('island-v1/reservations.json')).json()).tokens,40000);
 });

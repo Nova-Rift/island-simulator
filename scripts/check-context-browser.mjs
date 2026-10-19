@@ -45,7 +45,7 @@ try {
   await delay(3000)
   await evaluate(`window.contextTestCalls=0;const original=window.fetch;window.fetch=async(url,options)=>{
     if(url==='/api/island/status')return Response.json({ready:true});
-    if(url==='/api/island/dialogue'){window.contextTestCalls++;return window.contextTestCalls===1?Response.json({text:JSON.stringify({choice:1,intention:'Keep the original plan.'})}):Response.json({code:'CONTEXT_LIMIT'},{status:413})}
+    if(url==='/api/island/dialogue'){window.contextTestCalls++;return window.contextTestCalls===1?Response.json({text:JSON.stringify(1)}):Response.json({code:'CONTEXT_LIMIT'},{status:413})}
     return original(url,options)
   }`)
   await evaluate("document.querySelector('.social-paid input').click()")
@@ -54,7 +54,7 @@ try {
   await click('Play');await delay(1800)
   const state=await evaluate("({turn:document.querySelector('.social-state').textContent,error:document.querySelector('[role=alert]')?.textContent,summary:document.querySelector('.social-summaries p').textContent})")
   assert.match(state.turn,/turn 1$/);assert.match(state.error,/Paused without removing memories/);assert.equal(state.summary,'No conversation assessment yet.')
-  await delay(1800);assert.equal(await evaluate('window.contextTestCalls'),2)
+  const callsAfterPause=await evaluate('window.contextTestCalls');await delay(1800);assert.equal(await evaluate('window.contextTestCalls'),callsAfterPause)
   await click('Reset');await delay(50)
   await evaluate(`window.fetch=async(url)=>url==='/api/island/status'?Response.json({ready:true}):Response.json({code:'BUDGET_LIMIT'},{status:429})`)
   await click('Next turn');await delay(100)
@@ -72,6 +72,19 @@ try {
   assert.match(await evaluate("document.querySelector('.social-state').textContent"),/turn 0$/)
   assert.match(await evaluate("document.querySelector('.social-status').textContent"),/Current game state kept/)
   assert.equal(await evaluate("Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Next turn').disabled"),false)
+  await click('Reset');await delay(50)
+  await evaluate(`window.parallelActors=[];window.fetch=async(url,options)=>{
+   if(url==='/api/island/status')return Response.json({ready:true});
+   const actor=JSON.parse(JSON.parse(options.body).messages[1].content).agent;window.parallelActors.push(actor);
+   if(actor===0)return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('Stopped','AbortError')),{once:true}));
+   return Response.json({text:'0'})
+  }`)
+  await click('Play');await delay(250)
+  assert.equal(await evaluate('new Set(window.parallelActors).size'),8)
+  const progressed=await evaluate("Number(document.querySelector('.social-state').textContent.match(/turn (\\d+)/)[1])")
+  assert.ok(progressed>=7,'Unrelated actors should advance while Maya waits')
+  await click('Stop waiting');await delay(100)
+  assert.match(await evaluate("document.querySelector('.social-state').textContent"),new RegExp('turn '+progressed+'$'))
   assert.deepEqual(errors,[]);console.log('Context rejection pauses without advancing, losing intention, retrying, or supplying fallback actions.')
 
 } finally {

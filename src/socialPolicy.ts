@@ -62,13 +62,17 @@ export function gameReviewPrompt(frame:SocialFrame,agent:number) {
 
 export async function chooseModelDecision(model:SocialModel,observation:Observation,startingPrompt=DEFAULT_STARTING_PROMPT):Promise<Action>{
  const choices=observation.legal.map((action,choice)=>({choice,action}))
- const schema={type:'object',properties:{choice:{type:'integer',enum:choices.map(c=>c.choice)},text:{type:'string'},intention:{type:'string'},reason:{type:'string'}},required:['choice','text','intention','reason'],additionalProperties:false}
+ const schema={type:'integer',enum:choices.map(c=>c.choice)}
  const messages=decisionPrompt(observation,startingPrompt)
- messages[0].content+=' Output format for this decision: choose one numbered entry from choices. Return JSON with choice (the exact integer), intention, text (only for say, otherwise empty), and reason (only for vote, otherwise empty). The choice maps to the full action; do not output type, target or group.'
+ messages[0].content+=' Output format for action selection: return ONLY the integer choice number from choices, without an object, text, or explanation. The number maps to the complete legal action.'
  messages[1].content=JSON.stringify({...observation,choices})
  const raw=await model.generate(messages,true,schema)
- let data
- try{data=JSON.parse(raw)}catch{throw Object.assign(Error('Constrained decision was not valid JSON.'),{code:'INVALID_ACTION'})}
- if(!Number.isInteger(data?.choice)||data.choice<0||data.choice>=choices.length)throw Object.assign(Error('The provider did not return a valid constrained choice.'),{code:'INVALID_ACTION'})
- return parseDecision(JSON.stringify({...choices[data.choice].action,text:data.text,intention:data.intention,reason:data.reason}),observation)
+ let choice
+ try{choice=JSON.parse(raw)}catch{throw Object.assign(Error('Constrained decision was not valid JSON.'),{code:'INVALID_ACTION'})}
+ if(!Number.isInteger(choice)||choice<0||choice>=choices.length)throw Object.assign(Error('The provider did not return a valid constrained choice.'),{code:'INVALID_ACTION'})
+ const action=choices[choice].action
+ if(action.type!=='say'&&action.type!=='vote')return {...action}
+ const instruction=action.type==='say'?'Write one short spoken sentence to your current conversation. Return JSON {"text":"spoken sentence"}.':'Briefly explain your chosen vote. Return JSON {"reason":"short explanation"}.'
+ const wording=JSON.parse(await model.generate([{role:'system',content:startingPrompt.replaceAll('{name}',observation.name)+' Your action has already been selected. Do not select a different action. '+instruction},{role:'user',content:JSON.stringify({...observation,selectedAction:action})}],true))
+ return parseDecision(JSON.stringify({...action,text:wording.text,reason:wording.reason}),observation)
 }
