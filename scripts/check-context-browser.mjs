@@ -55,6 +55,15 @@ try {
   const state=await evaluate("({turn:document.querySelector('.social-state').textContent,error:document.querySelector('[role=alert]')?.textContent,summary:document.querySelector('.social-summaries p').textContent})")
   assert.match(state.turn,/turn 1$/);assert.match(state.error,/Paused without removing memories/);assert.equal(state.summary,'No conversation assessment yet.')
   await delay(1800);assert.equal(await evaluate('window.contextTestCalls'),2)
+  await click('Reset');await delay(50)
+  await evaluate(`window.fetch=async(url)=>url==='/api/island/status'?Response.json({ready:true}):Response.json({code:'BUDGET_LIMIT'},{status:429})`)
+  await click('Next turn');await delay(100)
+  assert.match(await evaluate("document.querySelector('[role=alert]').textContent"),/conservative reservation limit/)
+  assert.match(await evaluate("document.querySelector('.social-state').textContent"),/turn 0$/)
+  await evaluate(`window.fetch=async(url)=>url==='/api/island/status'?Response.json({ready:true}):Response.json({text:'{"type":"say","text":"illegal while alone"}'})`)
+  await click('Next turn');await delay(100)
+  assert.match(await evaluate("document.querySelector('[role=alert]').textContent"),/illegal action/)
+  assert.match(await evaluate("document.querySelector('.social-state').textContent"),/turn 0$/)
   assert.deepEqual(errors,[]);console.log('Context rejection pauses without advancing, losing intention, retrying, or supplying fallback actions.')
 
 } finally {

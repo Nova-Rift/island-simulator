@@ -174,3 +174,10 @@ requests through the same local budget/cache, not additional player knowledge.
 Scripted games offer an explicit **Generate AI recap (paid)** button instead of
 charging automatically. Failed recaps can be retried without regenerating completed
 cards. Reset discards pending results. Context overflow never trims the record.
+
+Model errors now pause the game rather than substituting a rule-based action.
+Messages distinguish the conservative reservation limit, rate limiting, malformed
+or illegal decisions, incomplete responses and provider failures. The reservation
+ledger is NOT billed-token usage: it charges prompt UTF-8 bytes plus overhead and
+maximum output, without refunding failed requests. It can stop much earlier than
+the nominal dollar estimate implies; use Runpod billing for actual charges.

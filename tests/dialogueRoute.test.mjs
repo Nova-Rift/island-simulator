@@ -59,7 +59,7 @@ test('budget exhaustion and storage failure fail closed; failures consume their 
   assert.ok((await (await settings.BUCKET.get('island-v1/reservations.json')).json()).tokens>0)
   const old=await settings.BUCKET.get('island-v1/reservations.json')
   await settings.BUCKET.put('island-v1/reservations.json',JSON.stringify({...(await old.json()),tokens:TOKEN_BUDGET}))
-  assert.equal((await dialogueRoute(request(),settings,provider)).status,429)
+  const limited=await dialogueRoute(request(),settings,provider);assert.equal(limited.status,429);assert.equal((await limited.json()).code,'BUDGET_LIMIT')
   assert.equal(calls,1)
   settings.BUCKET.get=async()=>{throw new Error('Unavailable')}
   assert.equal((await dialogueRoute(request(),settings,provider)).status,503)
@@ -69,4 +69,9 @@ test('over-12KB personal history reaches provider unchanged; context rejection i
  const settings=env(),long={...data,messages:[data.messages[0],{role:'user',content:'OLDEST '+ 'memory '.repeat(3000)+' NEWEST'}]};let calls=0
  const provider=async(_url,options)=>{calls++;assert.deepEqual(JSON.parse(options.body).messages,long.messages);return new Response('private provider rejection',{status:400})}
  const response=await dialogueRoute(request(long),settings,provider);assert.equal(response.status,413);assert.equal((await response.json()).code,'CONTEXT_LIMIT');assert.equal(calls,1)
+});
+
+test('editable decision prompts and outside-reviewer prompts are accepted locally',()=>{
+ for(const content of ['Play cautiously, {name}.','You are reviewing a completed fictional social voting game.'])assert.equal(validateDialogue({...data,messages:[{role:'system',content},data.messages[1]]}),true);
+ assert.equal(validateDialogue({...data,messages:[{role:'system',content:' '},data.messages[1]]}),false);
 });

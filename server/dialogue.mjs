@@ -13,8 +13,7 @@ export function validateDialogue(data) {
   if (!data || typeof data.json !== 'boolean' || !Array.isArray(data.messages) || data.messages.length !== 2) return false
   const [system, user] = data.messages
   if (system?.role !== 'system' || user?.role !== 'user' || typeof system.content !== 'string' || typeof user.content !== 'string') return false
-  if (!system.content.startsWith('You write natural dialogue for characters in an island survival game.') &&
-      !/^You are (Maya|Theo|Nia|Leo|Ava|Sam|Iris|Kai)\b/.test(system.content)) return false
+  if (!system.content.trim() || !user.content.trim()) return false
   return encoder.encode(JSON.stringify(data)).length <= MAX_REQUEST_BYTES
 }
 
@@ -65,7 +64,7 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
     raw = JSON.parse(new TextDecoder().decode(bytes))
   } catch { return jsonResponse({ error: 'Invalid JSON' }, 400) }
-  if (!validateDialogue(raw)) return jsonResponse({ error: 'Invalid island dialogue' }, 400)
+  if (!validateDialogue(raw)) return jsonResponse({ error: 'Invalid dialogue request.',code:'INVALID_REQUEST' }, 400)
   const { messages, json } = raw
   const canonical = JSON.stringify({ model: MODEL, contextPolicy:'full-history-v1', messages, json })
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(canonical))
@@ -74,8 +73,12 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
     const cached = await env.BUCKET.get(cacheKey)
     if (cached) return jsonResponse({ text: await cached.text(), cached: true })
     // Budget is atomic across isolates/visitors; if storage is unavailable, fail closed.
-    if (!await reserveBudget(env.BUCKET, encoder.encode(JSON.stringify(messages)).length + 1024 + MAX_OUTPUT_TOKENS))
-      return jsonResponse({ error: 'Conversation allowance reached. Continue without dialogue; see the local usage allowance in README.' }, 429)
+    const reservation=encoder.encode(JSON.stringify(messages)).length + 1024 + MAX_OUTPUT_TOKENS
+    if (!await reserveBudget(env.BUCKET, reservation)) {
+      const ledger=await env.BUCKET.get(BUDGET_KEY),used=ledger?(await ledger.json()).tokens:0
+      const exhausted=used+reservation>TOKEN_BUDGET
+      return jsonResponse({error:exhausted?'Local conversation allowance reached.':'Too many requests right now.',code:exhausted?'BUDGET_LIMIT':'RATE_LIMIT'},429)
+    }
     const client = createRunpodClient({ apiKey: env.RUNPOD_INFERENCE_KEY, fetchImpl })
     const text = await client.generate(messages, json, request.signal)
     if (json) JSON.parse(text)
@@ -83,6 +86,6 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
     return jsonResponse({ text, cached: false })
   } catch(error) {
     if(error?.code==='CONTEXT_LIMIT')return jsonResponse({error:'The provider could not accept the full personal history. Nothing was discarded.',code:'CONTEXT_LIMIT'},413)
-    return jsonResponse({ error: 'Conversations are temporarily unavailable. Try again or continue without dialogue.' }, 503)
+    return jsonResponse({ error: 'Model response unavailable.',code:['INCOMPLETE_RESPONSE','INVALID_JSON','EMPTY_RESPONSE'].includes(error?.code)?error.code:'PROVIDER_UNAVAILABLE' }, 503)
   }
 }

@@ -54,7 +54,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    let action:Action,source='scripted'
    if(paid){
     try{action=parseDecision(await model.current!.generate(decisionPrompt(observation,startingPrompt),true),observation);source='llm'}
-    catch(e){if((e as {code?:string})?.code==='CONTEXT_LIMIT')throw e;if(!active())return;action=observation.phase==='vote'?{...observation.legal[0],reason:'Model vote unavailable; mandatory rule fallback.'}:{type:'pass',intention:'No model choice available; sat this turn out.'};source='fallback';setError('A model response was unavailable or invalid. This turn is labeled as a rule fallback.')}
+    catch(e){if(!active())return;throw Object.assign(e instanceof Error?e:new Error('Invalid decision'),{code:(e as {code?:string})?.code||'INVALID_ACTION'})}
    }else action=scriptedDecision(observation)
    if(!active())return
    const result=g.step(action,source);setFrame(result.frame)
@@ -64,7 +64,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
      let assessment:Assessment={summary:'I am discussing the vote with this group; their support is not guaranteed.',winProbability:null,turn:result.event.turn,cycle:result.event.cycle,group:result.event.group,source:paid?'AI self-assessment':'Scripted example'}
      if(paid){
       try{assessment={...assessment,...parseAssessment(await model.current!.generate(summaryPrompt(g.observe(listener)),true))}}
-      catch(e){if((e as {code?:string})?.code==='CONTEXT_LIMIT')throw e;assessment={...assessment,summary:'Assessment unavailable for this exchange.',source:'Unavailable'}}
+      catch(e){if((e as {code?:string})?.code)throw e;assessment={...assessment,summary:'Assessment unavailable for this exchange.',source:'Unavailable'}}
      }
      if(active()){
       g.setSummary(listener,assessment.summary)
@@ -75,7 +75,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
     setFrame(g.frame())
    }
    if(g.done){pause();if(paid)await reviewGame(g.frame())}
-  }catch(e){if(active()){pause();model.current?.dispose();model.current=null;setError((e as {code?:string})?.code==='CONTEXT_LIMIT'?'Full personal history could not be accepted. Paused without removing memories. A larger-context model is needed to continue if the model limit was reached.':'Local Runpod is unavailable. Check the local server or switch off paid conversations.')}}
+  }catch(e){if(active()){pause();model.current?.dispose();model.current=null;setError(modelFailureMessage((e as {code?:string})?.code))}}
   finally{if(active())setBusy(false)}
  }
  useEffect(()=>{
@@ -175,4 +175,18 @@ function ConversationChat({events,group}:{events:Event[];group:number}) {
   </div>
   {unread&&<button className="social-chat-new" onClick={bottom}>New activity ↓</button>}
  </div>
+}
+
+function modelFailureMessage(code?:string){
+ const messages:Record<string,string>={
+  BUDGET_LIMIT:'Paused: the local conservative reservation limit is reached. No rule fallback was used. More paid requests require an explicitly increased allowance.',
+  RATE_LIMIT:'Paused: too many requests this minute. Wait, then press Play to retry this turn.',
+  CONTEXT_LIMIT:'Full personal history could not be accepted. Paused without removing memories. A larger-context model is needed to continue if the model limit was reached.',
+  INVALID_ACTION:'Paused: the model chose an illegal action or returned an invalid decision. No rule fallback was used.',
+  INVALID_JSON:'Paused: the model returned invalid JSON. No rule fallback was used.',
+  INCOMPLETE_RESPONSE:'Paused: the model response was cut off or incomplete. No rule fallback was used.',
+  EMPTY_RESPONSE:'Paused: the model returned an empty response. No rule fallback was used.',
+  INVALID_REQUEST:'Paused: the local server rejected the request format. No rule fallback was used.'
+ }
+ return messages[code||'']||'Paused: the local model request failed. Check the local server and Runpod connection. No rule fallback was used.'
 }

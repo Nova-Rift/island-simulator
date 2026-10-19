@@ -24,11 +24,11 @@ export function createRunpodClient({ apiKey, endpointId = ENDPOINT, model = MODE
       if (!response.ok) throw new Error(`Runpod inference failed (HTTP ${response.status})`)
       const result = await response.json()
       const text = result?.choices?.[0]?.message?.content
-      if (typeof text !== 'string' || !text.trim()) throw new Error('Runpod returned no dialogue')
-      if (text.includes('<think>') || result.choices[0].finish_reason === 'length') throw new Error('Runpod returned an incomplete response')
+      if (typeof text !== 'string' || !text.trim()) throw Object.assign(new Error('Runpod returned no dialogue'),{code:'EMPTY_RESPONSE'})
+      if (text.includes('<think>') || result.choices[0].finish_reason === 'length') throw Object.assign(new Error('Runpod returned an incomplete response'),{code:'INCOMPLETE_RESPONSE'})
       // Some instruction models wrap otherwise valid JSON in a Markdown fence.
       const cleaned = json ? text.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, '$1').trim() : text.trim()
-      if (json) JSON.parse(cleaned)
+      if (json) {try{JSON.parse(cleaned)}catch{throw Object.assign(new Error('Model returned invalid JSON'),{code:'INVALID_JSON'})}}
       return cleaned
     },
   }
