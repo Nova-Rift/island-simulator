@@ -4,9 +4,13 @@ export interface SocialModel { generate(messages:{role:'system'|'user';content:s
 const same=(a:Action,b:Action)=>a.type===b.type&&a.target===b.target&&a.group===b.group
 export function parseDecision(text:string,observation:Observation):Action {
  const data=JSON.parse(text) as Action
- if(!data || !observation.legal.some(a=>same(a,data)) || (data.type==='say' && (typeof data.text!=='string'||!data.text.trim())))throw new Error('Invalid social decision')
- return {type:data.type,target:data.target,group:data.group,text:typeof data.text==='string'?data.text.slice(0,180):undefined,
- intention:typeof data.intention==='string'?data.intention.slice(0,180):undefined,reason:typeof data.reason==='string'?data.reason.slice(0,180):undefined}
+ // Match only fields that define this legal action. Models sometimes include
+ // irrelevant group/target fields; do not reject an otherwise exact choice.
+ const chosen=data&&observation.legal.find(a=>a.type===data.type &&
+  (a.target===undefined||a.target===data.target) && (a.group===undefined||a.group===data.group))
+ if(!chosen || (chosen.type==='say' && (typeof data.text!=='string'||!data.text.trim())))throw new Error('Invalid social decision')
+ return {...chosen,text:chosen.type==='say'?data.text!.trim().slice(0,180):undefined,
+ intention:typeof data.intention==='string'?data.intention.slice(0,180):undefined,reason:chosen.type==='vote'&&typeof data.reason==='string'?data.reason.slice(0,180):undefined}
 }
 export const DEFAULT_STARTING_PROMPT = 'You are {name} in a fictional social voting game. Last remaining player wins +1; everyone else gets 0. Choose freely: you may stay alone, request entry, decline, leave, be silent or converse. Only use a listed legal action. Invitations need acceptance; join requests need all current members to admit. Exclusion needs a majority of other members and at least two supporters. You know only your own group, direct socialHistory notifications, and attributed heard messages. Remember who requested entry, who supported, accepted or denied it, and which group it concerned. Other conversations are private: you may ask people about them if they agree to talk. They may tell the truth, lie, omit details or refuse; treat their reports as unverified claims. You may also disclose, withhold or lie strategically. Mention "conversation N" to share a conversation identifier. Never assume access to hidden transcripts. Return one compact JSON action with type and its listed target/group (zero-based IDs), plus a brief intention. For say include one short spoken sentence in text. For vote include reason. No other text.'
 export function decisionPrompt(observation:Observation,startingPrompt=DEFAULT_STARTING_PROMPT) {

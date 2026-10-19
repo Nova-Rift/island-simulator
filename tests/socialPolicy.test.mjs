@@ -40,3 +40,16 @@ test('post-game reviewer receives every event and ballot only after completion',
  assert.deepEqual(payload.game,frame);assert.equal(payload.player,3);
  assert.equal(payload.game.councils.length,7);assert.ok(payload.game.events.length>100);
 });
+
+test('irrelevant model fields do not invalidate a legal choice or reach the engine',()=>{
+ const o=new SocialGame().observe();
+ const action=parseDecision('{"type":"invite","target":2,"group":1,"text":"not speech"}',o);
+ assert.equal(action.type,'invite');assert.equal(action.target,2);assert.equal(action.group,undefined);assert.equal(action.text,undefined);
+ const g=new SocialGame();g.step(action,'llm');assert.equal(g.frame().events[0].source,'llm');
+ assert.throws(()=>parseDecision('{"type":"invite","target":0,"group":1}',o));
+ assert.throws(()=>parseDecision('{"type":"join","group":1,"target":2}',o));
+ assert.throws(()=>parseDecision('{"type":"say","text":"not in a group"}',o));
+ const join={...o,legal:[{type:'join',group:3}]};
+ assert.equal(parseDecision('{"type":"join","group":3,"target":0}',join).target,undefined);
+ assert.throws(()=>parseDecision('{"type":"join","group":4}',join));
+});

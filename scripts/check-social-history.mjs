@@ -46,7 +46,7 @@ try {
   const {SocialGame}=await import('../src/social.mjs')
   const {scriptedDecision}=await import('../src/socialPolicy.ts')
   const game=new SocialGame(),actions=[]
-  while(game.turn<20){const action=scriptedDecision(game.observe());actions.push(action);game.step(action)}
+  while(game.turn<20){const action=scriptedDecision(game.observe());actions.push(action.type==='invite'?{...action,group:999}:action);game.step(action)}
   await evaluate(`window.mockActions=${JSON.stringify(actions)};window.fetch=async(url)=>{
     if(url==='/api/island/status')return Response.json({ready:true});
     if(url==='/api/island/dialogue')throw Error('Unconfigured mock');
