@@ -10,7 +10,7 @@ function App(){
  return <main className="local-shell">
   <header><h1>Agent sandbox</h1>
    <label>Environment <select value={simulation} onChange={e=>setSimulation(e.target.value)}>
-    <option value="blank">Blank · 10 agents</option>
+    <option value="blank">Blank · 10 agents + you</option>
     <option value="social">Archive · social game (scripted)</option>
     <option value="island">Archive · island simulation</option>
    </select></label>

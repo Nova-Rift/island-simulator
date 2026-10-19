@@ -1,7 +1,9 @@
 ## Current default: blank agent sandbox
 
 Open http://127.0.0.1:4174/ to see an empty environment with ten stationary
-agents. No behavior, dialogue, voting, or model calls run in this new environment.
+agents plus a player labeled **You**. Hold the arrow keys to move your player;
+movement stays inside the world. The ten other agents remain stationary. No
+dialogue, voting, or model calls run in this new environment.
 Older simulations remain in the Environment menu; the social archive is scripted.
 
 Paid inference is disabled by default on server startup, including for stale tabs.
