@@ -35,5 +35,5 @@ function intention(a:Action) {
  return intentions[a.type]||'Consider my next social choice.'
 }
 export function summaryPrompt(o:Observation) {
- return [{role:'system' as const,content:`You are ${PEOPLE[o.agent]} in a fictional social voting game. Update your short public status-card intention after hearing the latest exchange. Use only your own heard messages below. Return JSON {"summary":"one brief intention"}. No step-by-step reasoning.`},{role:'user' as const,content:JSON.stringify({intention:o.intention,heard:o.heard.slice(-6),remaining:o.remaining})}]
+ return [{role:'system' as const,content:`You are ${PEOPLE[o.agent]} in a fictional social voting game. Update your short public status-card intention after hearing the latest exchange. Use only your own heard messages below. Return JSON {"summary":"one brief intention"}. No step-by-step reasoning.`},{role:'user' as const,content:JSON.stringify({intention:o.intention,heard:o.heard,ownDecisions:o.ownDecisions,intentions:o.intentions,remaining:o.remaining})}]
 }

@@ -12,7 +12,7 @@ export class SocialGame {
   reset() {
     this.alive=PEOPLE.map(()=>true); this.groups=[]; this.nextGroup=1;
     this.turn=0; this.round=1; this.cycle=1; this.phase='social'; this.cursor=0;
-    this.memories=PEOPLE.map(()=>[]); this.summaries=PEOPLE.map(()=> 'No conversation yet.');
+    this.memories=PEOPLE.map(()=>[]); this.decisions=PEOPLE.map(()=>[]); this.intentions=PEOPLE.map(()=>[]); this.summaries=PEOPLE.map(()=> 'No conversation yet.');
     this.statuses=PEOPLE.map(()=> 'On their own'); this.events=[]; this.ballots=[]; this.councils=[];
     this.winner=null; this.rewards=PEOPLE.map(()=>0);
     return this.frame();
@@ -32,7 +32,7 @@ export class SocialGame {
       invitations:this.groups.filter(g=>g.invited.includes(agent)).map(g=>g.id),
       exclusionProposals:group ? copy(group.proposals) : [],
       joinRequests:group ? copy(group.requests) : [],
-      heard:copy(this.memories[agent].slice(-18)), intention:this.summaries[agent],
+      heard:copy(this.memories[agent]), ownDecisions:copy(this.decisions[agent]), intentions:copy(this.intentions[agent]), intention:this.summaries[agent],
       eliminated:this.councils.map(c=>c.eliminated), legal:this.legalActions(agent),
     };
   }
@@ -59,7 +59,7 @@ export class SocialGame {
     return actions;
   }
   remember(audience,text) {
-    for(const id of audience) this.memories[id].push({turn:this.turn,text});
+    for(const id of audience) this.memories[id].push({turn:this.turn,cycle:this.cycle,round:this.round,text});
   }
   removeMember(group,agent) {
     group.members=group.members.filter(i=>i!==agent);
@@ -67,7 +67,7 @@ export class SocialGame {
     group.proposals=[];group.requests=[];
     if(!group.members.length)this.groups=this.groups.filter(g=>g!==group);
   }
-  setSummary(agent,text) { if(this.alive[agent] && brief(text))this.summaries[agent]=brief(text); }
+  setSummary(agent,text) { if(this.alive[agent] && brief(text)){this.summaries[agent]=brief(text);this.intentions[agent].push({turn:this.turn,cycle:this.cycle,text:brief(text)});} }
   step(action,source='scripted') {
     if(this.done)throw new Error('Game finished');
     const actor=this.current;
@@ -78,6 +78,7 @@ export class SocialGame {
     const name=PEOPLE[actor], target=chosen.target;
     this.turn++;
     this.setSummary(actor,action.intention);
+    this.decisions[actor].push({turn:this.turn,cycle:this.cycle,round:this.round,action:{...chosen,...(chosen.type==='say'?{text:brief(action.text)}:{}),...(chosen.type==='vote'?{reason:brief(action.reason)}:{})},source});
     switch(chosen.type) {
       case 'invite':
         if(!group){group={id:this.nextGroup++,members:[actor],invited:[],blocked:[],proposals:[],requests:[]};this.groups.push(group);}

@@ -25,7 +25,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    let action:Action,source='scripted'
    if(paid){
     try{action=parseDecision(await model.current!.generate(decisionPrompt(observation),true),observation);source='llm'}
-    catch{if(!active())return;action=observation.phase==='vote'?{...observation.legal[0],reason:'Model vote unavailable; mandatory rule fallback.'}:{type:'pass',intention:'No model choice available; sat this turn out.'};source='fallback';setError('A model response was unavailable or invalid. This turn is labeled as a rule fallback.')}
+    catch(e){if((e as {code?:string})?.code==='CONTEXT_LIMIT')throw e;if(!active())return;action=observation.phase==='vote'?{...observation.legal[0],reason:'Model vote unavailable; mandatory rule fallback.'}:{type:'pass',intention:'No model choice available; sat this turn out.'};source='fallback';setError('A model response was unavailable or invalid. This turn is labeled as a rule fallback.')}
    }else action=scriptedDecision(observation)
    if(!active())return
    const result=g.step(action,source);setFrame(result.frame)
@@ -35,7 +35,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
      let summary='Listen to this group and decide who to support at the vote.'
      if(paid){
       try{const data=JSON.parse(await model.current!.generate(summaryPrompt(g.observe(listener)),true));if(typeof data.summary!=='string'||!data.summary.trim())throw Error();summary=data.summary}
-      catch{if(active())g.setSummary(listener,'Summary unavailable for this exchange.');return}
+      catch(e){if((e as {code?:string})?.code==='CONTEXT_LIMIT')throw e;if(active())g.setSummary(listener,'Summary unavailable for this exchange.');return}
      }
      if(active())g.setSummary(listener,summary)
     }))
@@ -43,7 +43,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
     setFrame(g.frame())
    }
    if(g.done)pause()
-  }catch{if(active()){pause();model.current?.dispose();model.current=null;setError('Local Runpod is unavailable. Check the local server or switch off paid conversations.')}}
+  }catch(e){if(active()){pause();model.current?.dispose();model.current=null;setError((e as {code?:string})?.code==='CONTEXT_LIMIT'?'Full personal history could not be accepted. Paused without removing memories. A larger-context model is needed to continue if the model limit was reached.':'Local Runpod is unavailable. Check the local server or switch off paid conversations.')}}
   finally{if(active())setBusy(false)}
  }
  useEffect(()=>{

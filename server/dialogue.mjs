@@ -1,4 +1,4 @@
-import { createRunpodClient, MODEL, MAX_OUTPUT_TOKENS } from './runpod-client.mjs'
+import { createRunpodClient, MODEL, MAX_OUTPUT_TOKENS, MAX_REQUEST_BYTES } from './runpod-client.mjs'
 
 const encoder = new TextEncoder()
 const BUDGET_KEY = 'island-v1/reservations.json'
@@ -15,7 +15,7 @@ export function validateDialogue(data) {
   if (system?.role !== 'system' || user?.role !== 'user' || typeof system.content !== 'string' || typeof user.content !== 'string') return false
   if (!system.content.startsWith('You write natural dialogue for characters in an island survival game.') &&
       !/^You are (Maya|Theo|Nia|Leo|Ava|Sam|Iris|Kai)\b/.test(system.content)) return false
-  return encoder.encode(JSON.stringify(data)).length <= 12000
+  return encoder.encode(JSON.stringify(data)).length <= MAX_REQUEST_BYTES
 }
 
 export async function reserveBudget(bucket, tokens, now = Date.now()) {
@@ -48,7 +48,7 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
   const origin = request.headers.get('Origin')
   if (!origin || origin !== new URL(request.url).origin) return jsonResponse({ error: 'Same-origin requests only' }, 403)
   if (!request.headers.get('Content-Type')?.startsWith('application/json')) return jsonResponse({ error: 'JSON required' }, 415)
-  if (Number(request.headers.get('Content-Length') || 0) > 12000) return jsonResponse({ error: 'Request too large' }, 413)
+  if (Number(request.headers.get('Content-Length') || 0) > MAX_REQUEST_BYTES) return jsonResponse({ error: 'Full personal history exceeds the request limit. Nothing was discarded.', code:'CONTEXT_LIMIT' }, 413)
   let raw
   try {
     const reader = request.body?.getReader()
@@ -58,7 +58,7 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
       const { done, value } = await reader.read()
       if (done) break
       size += value.byteLength
-      if (size > 12000) { await reader.cancel(); return jsonResponse({ error: 'Request too large' }, 413) }
+      if (size > MAX_REQUEST_BYTES) { await reader.cancel(); return jsonResponse({ error: 'Full personal history exceeds the request limit. Nothing was discarded.', code:'CONTEXT_LIMIT' }, 413) }
       chunks.push(value)
     }
     const bytes = new Uint8Array(size); let offset = 0
@@ -67,7 +67,7 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
   } catch { return jsonResponse({ error: 'Invalid JSON' }, 400) }
   if (!validateDialogue(raw)) return jsonResponse({ error: 'Invalid island dialogue' }, 400)
   const { messages, json } = raw
-  const canonical = JSON.stringify({ model: MODEL, messages, json })
+  const canonical = JSON.stringify({ model: MODEL, contextPolicy:'full-history-v1', messages, json })
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(canonical))
   const cacheKey = 'island-v1/dialogue/' + Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')
   try {
@@ -81,5 +81,8 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
     if (json) JSON.parse(text)
     await env.BUCKET.put(cacheKey, text, { httpMetadata: { contentType: 'text/plain' } })
     return jsonResponse({ text, cached: false })
-  } catch { return jsonResponse({ error: 'Conversations are temporarily unavailable. Try again or continue without dialogue.' }, 503) }
+  } catch(error) {
+    if(error?.code==='CONTEXT_LIMIT')return jsonResponse({error:'The provider could not accept the full personal history. Nothing was discarded.',code:'CONTEXT_LIMIT'},413)
+    return jsonResponse({ error: 'Conversations are temporarily unavailable. Try again or continue without dialogue.' }, 503)
+  }
 }

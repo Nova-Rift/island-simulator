@@ -46,6 +46,24 @@ agent's short current intention. These are stated intentions, not hidden reasoni
 This is a deliberately simplified turn-based social game, not a simulation of
 all human behavior, a trained survival policy or evidence of learned cooperation.
 
+## Full context across rounds
+
+Every decision and intention update receives the agent's **entire personal game
+history**: all messages/events it heard, its own action/vote history, and previous
+intention updates. There is no last-N window and no replacement of old events
+with a summary. Privacy still applies: other conversations and other agents' own
+choices/intentions are not supplied. Histories live in browser memory until Reset
+or page reload; this is not cross-session persistence.
+
+The model has a finite context capacity. Requests explicitly disable prompt
+truncation; provider rejection or the 256KiB transport ceiling **pauses the game**
+instead of discarding memories or substituting a rule action. If an intention
+update hits the limit after speech, that speech stays recorded and play pauses.
+A larger-context model would be needed to exceed its capacity. Keeping everything
+available does not guarantee perfect recall or attention. Longer input increases
+paid usage; the existing private cache and $10 reservation allowance are unchanged.
+No full paid game or unlimited-context guarantee is claimed.
+
 ## Optional paid model choices
 
 Create a Runpod inference key restricted to `qwen3-32b-awq` (no management access).

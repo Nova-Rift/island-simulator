@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createRunpodClient } from '../server/runpod-client.mjs'
+import { createRunpodClient, MAX_REQUEST_BYTES } from '../server/runpod-client.mjs'
 test('server transport pins Runpod origin, bounds output, and keeps credential in authorization header', async () => {
   let request
   const client=createRunpodClient({apiKey:'test-secret',endpointId:'test-endpoint',fetchImpl:async(url,options)=>{
@@ -16,7 +16,7 @@ test('server transport pins Runpod origin, bounds output, and keeps credential i
 test('invalid requests never reach paid inference, and provider errors do not leak details', async () => {
   let calls=0
   const client=createRunpodClient({apiKey:'test-secret',endpointId:'test',fetchImpl:async()=>{calls++;return new Response('sensitive provider details',{status:500})}})
-  await assert.rejects(client.generate([{role:'user',content:'x'.repeat(13000)}]),/oversized/)
+  await assert.rejects(client.generate([{role:'user',content:'x'.repeat(MAX_REQUEST_BYTES+1)}]),e=>e.code==='CONTEXT_LIMIT')
   assert.equal(calls,0)
   await assert.rejects(client.generate([{role:'user',content:'Speak.'}]),error=>error.message==='Runpod inference failed (HTTP 500)')
   assert.equal(calls,1)
@@ -31,3 +31,10 @@ test('JSON fences are normalized; truncated responses never become successful st
   const truncated=createRunpodClient({apiKey:'test-secret',fetchImpl:async()=>Response.json({choices:[{message:{content:'unfinished'},finish_reason:'length'}]})})
   await assert.rejects(truncated.generate([{role:'user',content:'Speak.'}]),/incomplete/)
 })
+test('large history is forwarded intact with truncation disabled; provider rejection is explicit and private',async()=>{
+ const content='EARLIEST_MEMORY '+ 'historical context '.repeat(1800)+' LAST_MEMORY';let request
+ const client=createRunpodClient({apiKey:'test-secret',fetchImpl:async(_url,options)=>{request=JSON.parse(options.body);return Response.json({choices:[{message:{content:'ok'},finish_reason:'stop'}]})}})
+ await client.generate([{role:'user',content}]);assert.equal(request.messages[0].content,content);assert.equal(request.truncate_prompt_tokens,null)
+ const rejected=createRunpodClient({apiKey:'test-secret',fetchImpl:async()=>new Response('sensitive provider body',{status:400})})
+ await assert.rejects(rejected.generate([{role:'user',content}]),e=>e.code==='CONTEXT_LIMIT'&&!e.message.includes('sensitive'))
+});

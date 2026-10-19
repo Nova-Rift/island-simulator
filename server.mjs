@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import { readFile,lstat } from 'node:fs/promises'
 import { resolve,dirname,join } from 'node:path'
 import { fileURLToPath,pathToFileURL } from 'node:url'
+import { MAX_REQUEST_BYTES } from './server/runpod-client.mjs'
 import { dialogueRoute } from './server/dialogue.mjs'
 import { fileStore } from './server/file-store.mjs'
 const root=dirname(fileURLToPath(import.meta.url))
@@ -32,7 +33,7 @@ export function createLocalServer({port=4174,apiKey='',stateDirectory=join(root,
       if(url.pathname.startsWith('/api/island/')) {
         if(req.method==='POST' && req.headers.origin!==origin){res.writeHead(403);res.end('Origin required');return}
         const chunks=[];let size=0
-        for await(const chunk of req){size+=chunk.length;if(size>12000){res.writeHead(413);res.end('Request too large');return}chunks.push(chunk)}
+        for await(const chunk of req){size+=chunk.length;if(size>MAX_REQUEST_BYTES){res.writeHead(413,{'Content-Type':'application/json'});res.end(JSON.stringify({code:'CONTEXT_LIMIT',error:'Full personal history exceeds the request limit. Nothing was discarded.'}));return}chunks.push(chunk)}
         const body=Buffer.concat(chunks)
         const controller=new AbortController()
         res.on('close',()=>{if(!res.writableEnded)controller.abort()})

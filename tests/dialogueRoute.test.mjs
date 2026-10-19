@@ -1,3 +1,4 @@
+import { MAX_REQUEST_BYTES } from '../server/runpod-client.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { dialogueRoute, reserveBudget, TOKEN_BUDGET, validateDialogue } from '../server/dialogue.mjs'
@@ -28,7 +29,7 @@ test('invalid/oversized/cross-origin requests never reach paid inference', async
   const provider = () => { calls++; throw new Error('Should not call provider') }
   assert.equal((await dialogueRoute(request(data, 'https://other.invalid'), settings, provider)).status,403)
   assert.equal((await dialogueRoute(request({...data,messages:[]}), settings, provider)).status,400)
-  assert.equal((await dialogueRoute(request({...data,extra:'x'.repeat(12001)}), settings, provider)).status,413)
+  assert.equal((await dialogueRoute(request({...data,extra:'x'.repeat(MAX_REQUEST_BYTES+1)}), settings, provider)).status,413)
   assert.equal(calls,0)
   for (const name of ['Maya','Theo','Nia','Leo','Ava','Sam','Iris','Kai'])
     assert.equal(validateDialogue({...data,messages:[{role:'system',content:`You are ${name} in a fictional island game.`},data.messages[1]]}),true)
@@ -64,3 +65,8 @@ test('budget exhaustion and storage failure fail closed; failures consume their 
   assert.equal((await dialogueRoute(request(),settings,provider)).status,503)
   assert.equal(calls,1)
 })
+test('over-12KB personal history reaches provider unchanged; context rejection is 413 with no reduced retry',async()=>{
+ const settings=env(),long={...data,messages:[data.messages[0],{role:'user',content:'OLDEST '+ 'memory '.repeat(3000)+' NEWEST'}]};let calls=0
+ const provider=async(_url,options)=>{calls++;assert.deepEqual(JSON.parse(options.body).messages,long.messages);return new Response('private provider rejection',{status:400})}
+ const response=await dialogueRoute(request(long),settings,provider);assert.equal(response.status,413);assert.equal((await response.json()).code,'CONTEXT_LIMIT');assert.equal(calls,1)
+});
