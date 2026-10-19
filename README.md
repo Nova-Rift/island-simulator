@@ -283,3 +283,38 @@ rate limits, failed jobs and local connectivity. HTTP400 is a request rejection,
 not automatically a context overflow. A failure pauses with the game preserved;
 Play retries through the normal reservation guard. No automatic paid retries or
 scripted replacement decisions are introduced.
+
+### Switch between Runpod and OpenAI
+
+The local social simulator has a **Model provider** selector: Runpod (Granite) or
+OpenAI (`gpt-6-astra`). Enable **Use live agents (paid)** to run agent decisions;
+recap buttons also use the selected provider. Pause and let pending requests
+finish before switching. Switching retains the game, discussion clock and each
+agent's private history. Independent conversations still run in parallel.
+There is no automatic provider fallback.
+
+OpenAI requires a separate API key and API billing, not a ChatGPT subscription.
+From this repository, run `npm run setup:openai` and paste the key into the hidden
+terminal prompt, then restart the local server. The key is saved with private
+permissions in ignored `.local/openai-api-key`. Alternatively set
+`OPENAI_API_KEY_FILE` to an owned, regular mode-0600 key file, or supply
+`OPENAI_API_KEY` through your process environment. Never commit or paste keys into
+source code. The server binds only to `127.0.0.1`; keys never enter the browser.
+
+Astra requests use Responses with `store:false`, low reasoning effort, and a
+2,048-token output ceiling including reasoning. Every request includes the full
+appropriate history; no context is silently trimmed. Incomplete or invalid outputs
+pause the game, without a scripted substitute or automatic paid retry. Access to
+the exact model depends on your OpenAI API account.
+
+Both providers share the existing $50 conservative reservation ceiling. Existing
+reservations are preserved. A reservation unit represents $0.000001 of allowance,
+not a billed token. Runpod reserves prompt bytes + overhead + maximum output at
+$1/M; Astra reserves input bytes + overhead at $10/M and maximum output at $50/M.
+The full output allowance is reserved even when unused, and failed requests are
+not refunded, so this can stop well before actual billing reaches $50. It is not
+an account-wide billing cap. No cached-input discount is assumed. The 262KB request
+limit stays below Astra's long-context pricing threshold.
+See [Astra model documentation](https://developers.openai.com/api/docs/models/gpt-6-astra)
+for current prices and access. This change adds no paid inference to the public
+website. Clones contain no account credentials.

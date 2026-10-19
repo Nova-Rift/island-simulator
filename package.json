@@ -3,11 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.6.0" },
+  "engines": {
+    "node": ">=22.6.0"
+  },
   "scripts": {
     "start": "node server.mjs",
     "build": "node scripts/build.mjs",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs"
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "setup:openai": "bash scripts/setup-openai.sh"
   },
   "devDependencies": {
     "esbuild": "0.25.12",

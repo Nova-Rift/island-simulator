@@ -1,17 +1,20 @@
 import type { ChatMessage, IslandLanguageModel } from './islandLanguage.ts'
 
-// Provider credentials stay in the Site Worker. No model download on the device.
+// Credentials stay on the loopback server, never in the browser bundle.
 export class ServerLanguageModel implements IslandLanguageModel {
+  constructor(private provider:'runpod'|'openai'='runpod') {}
   private controller = new AbortController()
   async load() {
     const response = await fetch('/api/island/status', { signal: this.controller.signal })
     if (!response.ok) throw new Error('Server conversations are temporarily unavailable.')
-    return 'Runpod AI'
+    const status=await response.json()
+    if(status.providers && !status.providers[this.provider]?.ready)throw Object.assign(new Error('Provider is not configured'),{code:'PROVIDER_NOT_CONFIGURED'})
+    return this.provider==='openai'?'OpenAI GPT-6 Astra':'Runpod AI'
   }
   async generate(messages: ChatMessage[], json: boolean, schema?:Record<string,unknown>) {
     const response = await fetch('/api/island/dialogue', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, json, ...(schema?{schema}:{}) }), credentials: 'same-origin',
+      body: JSON.stringify({ provider:this.provider, messages, json, ...(schema?{schema}:{}) }), credentials: 'same-origin',
       signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(125000)]),
     }).catch(error=>{
       if(this.controller.signal.aborted)throw error

@@ -1,3 +1,4 @@
+import {createOpenAIClient,OPENAI_MODEL,OPENAI_MAX_OUTPUT} from './openai-client.mjs'
 import { createRunpodClient, MODEL, MAX_OUTPUT_TOKENS, MAX_REQUEST_BYTES } from './runpod-client.mjs'
 
 const encoder = new TextEncoder()
@@ -15,6 +16,7 @@ const RATE_LIMIT = 600
 const jsonResponse = (data, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
 
 export function validateDialogue(data) {
+  if (data?.provider!==undefined && !['runpod','openai'].includes(data.provider)) return false
   if (!data || typeof data.json !== 'boolean' || !Array.isArray(data.messages) || data.messages.length !== 2) return false
   if(data.schema!==undefined && (!data.json||!data.schema||typeof data.schema!=='object'||Array.isArray(data.schema)))return false
   const [system, user] = data.messages
@@ -43,12 +45,12 @@ export async function reserveBudget(bucket, tokens, now = Date.now()) {
 
 export async function dialogueRoute(request, env, fetchImpl = fetch) {
   const path = new URL(request.url).pathname
-  if (!env.RUNPOD_INFERENCE_KEY || !env.BUCKET) return jsonResponse({ error: 'Conversations are temporarily unavailable.' }, 503)
+  if (!env.BUCKET) return jsonResponse({ error: 'Conversations are temporarily unavailable.' }, 503)
   if (path === '/api/island/status') {
     if (request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405)
     const lastFailure=await env.BUCKET.get(FAILURE_KEY)
     const ledger=await env.BUCKET.get(BUDGET_KEY)
-    return jsonResponse({ ready: true, model: MODEL, provider: 'Runpod', lastFailure:lastFailure?await lastFailure.json():null, allowance:{reservedUnits:ledger?(await ledger.json()).tokens:0,limitUnits:RESERVATION_UNIT_LIMIT,unit:'conservative reservation units, not billed tokens',pricingBasisUsdPerMillionTokens:1,actualSpendUsd:null} })
+    return jsonResponse({ ready: Boolean(env.RUNPOD_INFERENCE_KEY||env.OPENAI_API_KEY), model: MODEL, provider: 'Runpod', providers:{runpod:{ready:Boolean(env.RUNPOD_INFERENCE_KEY),model:MODEL},openai:{ready:Boolean(env.OPENAI_API_KEY),model:OPENAI_MODEL}}, lastFailure:lastFailure?await lastFailure.json():null, allowance:{reservedUnits:ledger?(await ledger.json()).tokens:0,limitUnits:RESERVATION_UNIT_LIMIT,unit:'conservative dollar-weighted reservation units, not billed tokens',pricingBasisUsdPerMillionTokens:1,reservedUsdPerUnit:0.000001,providerRates:{runpod:{input:1,output:1},openai:{input:10,output:50}},actualSpendUsd:null} })
   }
   if (path !== '/api/island/dialogue') return jsonResponse({ error: 'Not found' }, 404)
   if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405)
@@ -73,21 +75,27 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
     raw = JSON.parse(new TextDecoder().decode(bytes))
   } catch { return jsonResponse({ error: 'Invalid JSON' }, 400) }
   if (!validateDialogue(raw)) return jsonResponse({ error: 'Invalid dialogue request.',code:'INVALID_REQUEST' }, 400)
-  const { messages, json, schema } = raw
-  const canonical = JSON.stringify({ model: MODEL, contextPolicy:'full-history-v1', messages, json, ...(schema?{schema}:{}) })
+  const { messages, json, schema, provider='runpod' } = raw
+  const apiKey=provider==='openai'?env.OPENAI_API_KEY:env.RUNPOD_INFERENCE_KEY
+  if(!apiKey)return jsonResponse({error:'Configure the selected provider on the local server.',code:'PROVIDER_NOT_CONFIGURED'},503)
+  const canonical = JSON.stringify({ model: provider==='openai'?OPENAI_MODEL:MODEL, contextPolicy:'full-history-v1', messages, json, ...(schema?{schema}:{}) })
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(canonical))
   const cacheKey = 'island-v1/dialogue/' + Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')
   try {
     const cached = await env.BUCKET.get(cacheKey)
     if (cached) return jsonResponse({ text: await cached.text(), cached: true })
     // Budget is atomic across isolates/visitors; if storage is unavailable, fail closed.
-    const reservation=encoder.encode(JSON.stringify({messages,schema})).length + 1024 + MAX_OUTPUT_TOKENS
+    const inputUnits=encoder.encode(JSON.stringify({messages,schema})).length+1024
+    // One unit reserves $0.000001. Preserve existing Granite reservations.
+    // Astra: $10/M input, $50/M output (including reasoning); no cache discount assumed.
+    // The 262KB request ceiling stays below the 272K-token long-context surcharge.
+    const reservation=provider==='openai'?inputUnits*10+OPENAI_MAX_OUTPUT*50:inputUnits+MAX_OUTPUT_TOKENS
     if (!await reserveBudget(env.BUCKET, reservation)) {
       const ledger=await env.BUCKET.get(BUDGET_KEY),used=ledger?(await ledger.json()).tokens:0
       const exhausted=used+reservation>RESERVATION_UNIT_LIMIT
       return jsonResponse({error:exhausted?'Local conversation allowance reached.':'Too many requests right now.',code:exhausted?'BUDGET_LIMIT':'RATE_LIMIT'},429)
     }
-    const client = createRunpodClient({ apiKey: env.RUNPOD_INFERENCE_KEY, fetchImpl })
+    const client = (provider==='openai'?createOpenAIClient:createRunpodClient)({ apiKey, fetchImpl })
     const text = await client.generate(messages, json, request.signal, schema)
     if (json) JSON.parse(text)
     await env.BUCKET.put(cacheKey, text, { httpMetadata: { contentType: 'text/plain' } })

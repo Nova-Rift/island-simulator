@@ -8,10 +8,13 @@ import './social.css'
 
 type Assessment={summary:string;winProbability:number|null;turn:number;cycle:number;group:number|null;source:string}
 
-export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
+export function SocialDemo({makeModel}:{makeModel?:(provider?:'runpod'|'openai')=>SocialModel}) {
  const game=useRef(new SocialGame()), model=useRef<SocialModel|null>(null), generation=useRef(0), running=useRef(false)
  const [frame,setFrame]=useState<SocialFrame>(()=>game.current.frame())
  const [playing,setPlaying]=useState(false),[busy,setBusy]=useState(false),[speed,setSpeed]=useState(1)
+ const [provider,setProvider]=useState<'runpod'|'openai'>('runpod')
+ const providerRef=useRef(provider);providerRef.current=provider
+ const providerLabel=provider==='openai'?'OpenAI · GPT-6 Astra':'Runpod'
  const [paid,setPaid]=useState(false),[status,setStatus]=useState('Ready to start.'),[error,setError]=useState('')
  const [assessments,setAssessments]=useState<Record<number,Assessment>>({})
  const [historyGroup,setHistoryGroup]=useState('all'),[historyAgent,setHistoryAgent]=useState('all')
@@ -45,7 +48,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
   reviewState.current={snapshot:finalFrame,results,order};setReviewSnapshot(finalFrame);setReviews(results);setPrediction(order);setPredictionError('')
   reviewBusy.current=true;setReviewing(true);setReviewErrors({})
   try{
-   reviewModel.current=makeModel();await reviewModel.current.load()
+   reviewModel.current=makeModel(providerRef.current);await reviewModel.current.load()
    if(!active())return
    const reviewer=reviewModel.current
    await Promise.all([...PEOPLE.map(async(_,agent)=>{
@@ -69,7 +72,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
   const id=generation.current,g=game.current,active=()=>generation.current===id
   setError('');setBusy(true)
   try{
-   if(!model.current){model.current=makeModel!();await model.current.load()}
+   if(!model.current){model.current=makeModel!(providerRef.current);await model.current.load()}
    if(!active())return
    if(!runner.current)runner.current=new SocialRunner({game:g,
     decide:o=>chooseModelDecision(model.current!,o,promptRef.current),
@@ -117,7 +120,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
  }
  const alone=frame.alive.flatMap((alive,i)=>alive&&!frame.groups.some(g=>g.members.includes(i))?[i]:[])
  return <section className="social-demo" aria-labelledby="social-title">
-  <div className="social-heading"><h2 id="social-title">Conversations & a vote</h2><span>{paid?'Local Runpod · paid':'Scripted example · free'}</span></div>
+  <div className="social-heading"><h2 id="social-title">Conversations & a vote</h2><span>{paid?`${providerLabel} · paid`:'Scripted example · free'}</span></div>
   <p className="social-intro">Talk, ask to join, or sit it out. Live agents can act throughout a two-minute discussion, then everyone votes. Waiting is temporary. Independent conversations run in parallel; messages within each stay sequential.</p>
   <details className="social-prompt">
    <summary>Starting prompt · editable</summary>
@@ -136,11 +139,13 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    <button onClick={()=>reset()}>Reset</button>
    {makeModel&&frame.phase!=='finished'&&<button disabled={reviewing||frame.turn===0} onClick={()=>void reviewGame(game.current.frame())}>{reviewing?'Summarizing…':'Summarize game so far (paid)'}</button>}
    {(busy||reviewing)&&<button onClick={stopWaiting}>Stop waiting</button>}
-   <label title="Only changes the pause between turns; does not speed up Runpod inference.">Turn speed <select value={speed} onChange={e=>setSpeed(Number(e.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></label>
-   {makeModel&&<label className="social-paid"><input type="checkbox" checked={paid} onChange={e=>{reset(e.target.checked);setPaid(e.target.checked)}}/>Use my local Runpod (paid)</label>}
+   <label title="Only changes the pause between turns; does not speed up model inference.">Turn speed <select value={speed} onChange={e=>setSpeed(Number(e.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></label>
+   {makeModel&&<label className="social-paid"><input type="checkbox" checked={paid} onChange={e=>{reset(e.target.checked);setPaid(e.target.checked)}}/>Use live agents (paid)</label>}
   </div>
   <div className="social-state"><strong>{frame.phase==='finished'?`${PEOPLE[frame.winner!]} wins!`:frame.phase==='vote'?`Vote ${frame.cycle}`:frame.concurrent?`Vote ${frame.cycle} in ${Math.floor(Math.ceil(frame.discussionRemainingMs/1000)/60)}:${String(Math.ceil(frame.discussionRemainingMs/1000)%60).padStart(2,'0')}${frame.discussionRemainingMs<=0?' · finishing pending replies':''}`:`Round ${frame.round}/4 · vote ${frame.cycle} ahead`}</strong><span>{frame.alive.filter(Boolean).length} remain · turn {frame.turn} · {frame.events.filter(e=>e.cycle===frame.cycle&&e.type==='say').length} messages this council</span></div>
-  <p className="social-status" role="status">{busy?`Waiting on ${paid?'Runpod':'simulation'} · ${waitingSeconds}s — `:''}{status}{latest?.source==='fallback'?' (Rule fallback)':''}</p>
+  {makeModel&&<label>Model provider <select aria-label="Model provider" value={provider} disabled={playing||busy||reviewing} onChange={e=>{model.current?.dispose();model.current=null;setProvider(e.target.value as 'runpod'|'openai');setError('');setStatus('Provider changed. Game and private histories kept.')}}><option value="runpod">Runpod · Granite</option><option value="openai">OpenAI · GPT-6 Astra</option></select> <small>Pause and finish pending requests to switch.</small></label>}
+  {makeModel&&provider==='openai'&&<p>OpenAI uses a separate API key and API billing. Configure privately with <code>npm run setup:openai</code> in the simulator folder, then restart the local server.</p>}
+  <p className="social-status" role="status">{busy?`Waiting on ${paid?providerLabel:'simulation'} · ${waitingSeconds}s — `:''}{status}{latest?.source==='fallback'?' (Rule fallback)':''}</p>
   {error&&<p className="conversation-error" role="alert">{error}</p>}
   <div className="social-board">
    {frame.groups.map(group=><section className="social-group" key={group.id} aria-label={`Private conversation ${group.id}`}>
@@ -217,16 +222,17 @@ function ConversationChat({events,group}:{events:Event[];group:number}) {
 
 function modelFailureMessage(code?:string){
  const messages:Record<string,string>={
-  BUDGET_LIMIT:'Paused: the local conservative reservation limit is reached. This counts prompt bytes and output allowances, not actual billed tokens or dollars. Check Runpod billing before increasing the allowance. No rule fallback was used.',
-  PROVIDER_TIMEOUT:'Paused: Runpod did not finish the request within two minutes. Your game is kept. Press Play to try again.',
-  PROVIDER_AUTH:'Paused: Runpod rejected the local API key or its permissions. The local server is reachable.',
-  PROVIDER_BILLING:'Paused: Runpod returned a billing restriction. Check Runpod billing.',
-  PROVIDER_RATE_LIMIT:'Paused: Runpod is rate-limiting requests. Your game is kept. Wait briefly, then press Play.',
-  PROVIDER_NETWORK:'Paused: the local server could not reach Runpod. Your game is kept. Press Play to try again.',
-  PROVIDER_UNAVAILABLE:'Paused: Runpod or the local request service returned an error. Your game is kept. Press Play to try again.',
-  PROVIDER_JOB_FAILED:'Paused: Runpod reported that its model job failed. Your game is kept. Press Play to try again.',
-  PROVIDER_NOT_FOUND:'Paused: Runpod could not find the endpoint or job result. Your game is kept.',
-  PROVIDER_REQUEST_REJECTED:'Paused: Runpod rejected the request parameters. Your game is kept; no history was removed.',
+  PROVIDER_NOT_CONFIGURED:'Selected provider is not configured. For OpenAI, run npm run setup:openai in the simulator folder and restart the server. No paid request was sent.',
+  BUDGET_LIMIT:'Paused: the local conservative reservation limit is reached. This counts prompt bytes and output allowances, not actual billed tokens or dollars. Check provider billing before increasing the allowance. No rule fallback was used.',
+  PROVIDER_TIMEOUT:'Paused: The provider did not finish the request within two minutes. Your game is kept. Press Play to try again.',
+  PROVIDER_AUTH:'Paused: The provider rejected the local API key or its permissions. The local server is reachable.',
+  PROVIDER_BILLING:'Paused: The provider returned a billing restriction. Check provider billing.',
+  PROVIDER_RATE_LIMIT:'Paused: The provider is rate-limiting requests. Your game is kept. Wait briefly, then press Play.',
+  PROVIDER_NETWORK:'Paused: the local server could not reach the provider. Your game is kept. Press Play to try again.',
+  PROVIDER_UNAVAILABLE:'Paused: The provider or the local request service returned an error. Your game is kept. Press Play to try again.',
+  PROVIDER_JOB_FAILED:'Paused: The provider reported that its model job failed. Your game is kept. Press Play to try again.',
+  PROVIDER_NOT_FOUND:'Paused: The provider could not find the endpoint or job result. Your game is kept.',
+  PROVIDER_REQUEST_REJECTED:'Paused: The provider rejected the request parameters. Your game is kept; no history was removed.',
   LOCAL_CONNECTION:'Paused: the browser could not reach the local simulator server. Your game is kept.',
   RATE_LIMIT:'Paused: too many requests this minute. Wait, then press Play to retry this turn.',
   CONTEXT_LIMIT:'Full personal history could not be accepted. Paused without removing memories. A larger-context model is needed to continue if the model limit was reached.',
@@ -236,5 +242,5 @@ function modelFailureMessage(code?:string){
   EMPTY_RESPONSE:'Paused: the model returned an empty response. No rule fallback was used.',
   INVALID_REQUEST:'Paused: the local server rejected the request format. No rule fallback was used.'
  }
- return messages[code||'']||'Paused: the local model request failed. Check the local server and Runpod connection. No rule fallback was used.'
+ return messages[code||'']||'Paused: the local model request failed. Check the local server and provider connection. No rule fallback was used.'
 }

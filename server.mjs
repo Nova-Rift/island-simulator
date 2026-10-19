@@ -15,9 +15,9 @@ export async function loadKey(path) {
   if(key.length<16 || key.length>4096 || /\s/.test(key))throw new Error('Invalid key file.')
   return key
 }
-export function createLocalServer({port=4174,apiKey='',stateDirectory=join(root,'.local/state'),fetchImpl=fetch}={}) {
+export function createLocalServer({port=4174,apiKey='',openaiApiKey='',stateDirectory=join(root,'.local/state'),fetchImpl=fetch}={}) {
   const origin=`http://127.0.0.1:${port}`
-  const env={RUNPOD_INFERENCE_KEY:apiKey,BUCKET:fileStore(stateDirectory)}
+  const env={RUNPOD_INFERENCE_KEY:apiKey,OPENAI_API_KEY:openaiApiKey,BUCKET:fileStore(stateDirectory)}
   const server=createServer(async(req,res)=>{
     res.setHeader('Cache-Control','no-store')
     res.setHeader('X-Content-Type-Options','nosniff')
@@ -53,7 +53,10 @@ export function createLocalServer({port=4174,apiKey='',stateDirectory=join(root,
 if(process.argv[1] && pathToFileURL(resolve(process.argv[1])).href===import.meta.url) {
   try {
     const key=await loadKey(process.env.RUNPOD_KEY_FILE)
-    const app=createLocalServer({apiKey:key})
+    const defaultOpenAI=join(root,'.local/openai-api-key')
+    const openaiApiKey=process.env.OPENAI_API_KEY || await loadKey(process.env.OPENAI_API_KEY_FILE || (await lstat(defaultOpenAI).catch(()=>null)?defaultOpenAI:undefined))
+    const app=createLocalServer({apiKey:key,openaiApiKey})
+    console.log(openaiApiKey?'OpenAI configured; inference requires a paid action.':'OpenAI not configured. Run npm run setup:openai to save a private key.')
     const url=await app.listen()
     console.log(`Local island simulator: ${url}`)
     console.log(key?'Paid Runpod ready. Inference starts only when you click Play with conversations.':'No Runpod key configured. Silent simulation is free; see README for optional paid setup.')
