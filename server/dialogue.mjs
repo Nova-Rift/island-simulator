@@ -2,10 +2,13 @@ import { createRunpodClient, MODEL, MAX_OUTPUT_TOKENS, MAX_REQUEST_BYTES } from 
 
 const encoder = new TextEncoder()
 const BUDGET_KEY = 'island-v1/reservations.json'
-// $50 task ceiling at the previously verified $10 / million tokens. Count UTF-8 bytes + generous
-// template overhead as tokens; reserve BEFORE inference and never refund errors.
+// Granite published pricing: $1 / million tokens, checked 2026-10-19:
+// https://www.runpod.io/pricing . $50 task allowance => 50 million reserved units.
+// Units are UTF-8 bytes + overhead + maximum output, NOT measured tokens or dollars.
+// Legacy ledger field `tokens` remains for compatibility. Never refund errors.
+// This is a local conservative guard, not an account-wide actual-dollar billing cap.
 // Durable across deploys. Do not reset this object to silently renew the budget.
-export const TOKEN_BUDGET = 5_000_000
+export const RESERVATION_UNIT_LIMIT = 50_000_000
 const RATE_LIMIT = 600
 const jsonResponse = (data, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
 
@@ -25,7 +28,7 @@ export async function reserveBudget(bucket, tokens, now = Date.now()) {
     if (!Number.isSafeInteger(state.tokens) || state.tokens < 0 || !Number.isSafeInteger(tokens) || tokens < 1) throw new Error('Invalid usage ledger')
     const minute = Math.floor(now / 60000)
     const minuteRequests = state.minute === minute ? state.minuteRequests : 0
-    if (state.tokens + tokens > TOKEN_BUDGET || minuteRequests >= RATE_LIMIT) return false
+    if (state.tokens + tokens > RESERVATION_UNIT_LIMIT || minuteRequests >= RATE_LIMIT) return false
     const next = { tokens: state.tokens + tokens, requests: state.requests + 1, minute, minuteRequests: minuteRequests + 1 }
     const result = await bucket.put(BUDGET_KEY, JSON.stringify(next), {
       onlyIf: old ? { etagMatches: old.etag } : new Headers({ 'If-None-Match': '*' }),
@@ -41,7 +44,8 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
   if (!env.RUNPOD_INFERENCE_KEY || !env.BUCKET) return jsonResponse({ error: 'Conversations are temporarily unavailable.' }, 503)
   if (path === '/api/island/status') {
     if (request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405)
-    return jsonResponse({ ready: true, model: MODEL, provider: 'Runpod' })
+    const ledger=await env.BUCKET.get(BUDGET_KEY)
+    return jsonResponse({ ready: true, model: MODEL, provider: 'Runpod', allowance:{reservedUnits:ledger?(await ledger.json()).tokens:0,limitUnits:RESERVATION_UNIT_LIMIT,unit:'conservative reservation units, not billed tokens',pricingBasisUsdPerMillionTokens:1,actualSpendUsd:null} })
   }
   if (path !== '/api/island/dialogue') return jsonResponse({ error: 'Not found' }, 404)
   if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405)
@@ -77,7 +81,7 @@ export async function dialogueRoute(request, env, fetchImpl = fetch) {
     const reservation=encoder.encode(JSON.stringify({messages,schema})).length + 1024 + MAX_OUTPUT_TOKENS
     if (!await reserveBudget(env.BUCKET, reservation)) {
       const ledger=await env.BUCKET.get(BUDGET_KEY),used=ledger?(await ledger.json()).tokens:0
-      const exhausted=used+reservation>TOKEN_BUDGET
+      const exhausted=used+reservation>RESERVATION_UNIT_LIMIT
       return jsonResponse({error:exhausted?'Local conversation allowance reached.':'Too many requests right now.',code:exhausted?'BUDGET_LIMIT':'RATE_LIMIT'},429)
     }
     const client = createRunpodClient({ apiKey: env.RUNPOD_INFERENCE_KEY, fetchImpl })

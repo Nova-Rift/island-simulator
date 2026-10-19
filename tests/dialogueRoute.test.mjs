@@ -1,7 +1,7 @@
 import { MAX_REQUEST_BYTES } from '../server/runpod-client.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { dialogueRoute, reserveBudget, TOKEN_BUDGET, validateDialogue } from '../server/dialogue.mjs'
+import { dialogueRoute, reserveBudget, RESERVATION_UNIT_LIMIT, validateDialogue } from '../server/dialogue.mjs'
 
 export class MemoryBucket {
   objects = new Map()
@@ -46,9 +46,9 @@ test('successful model responses are cached and neither cache nor responses cont
 })
 test('concurrent isolates cannot overspend the durable reservation budget', async () => {
   const bucket=new MemoryBucket()
-  const results=await Promise.all(Array.from({length:16},()=>reserveBudget(bucket,TOKEN_BUDGET/2)))
+  const results=await Promise.all(Array.from({length:16},()=>reserveBudget(bucket,RESERVATION_UNIT_LIMIT/2)))
   assert.equal(results.filter(Boolean).length,2)
-  assert.equal((await (await bucket.get('island-v1/reservations.json')).json()).tokens,TOKEN_BUDGET)
+  assert.equal((await (await bucket.get('island-v1/reservations.json')).json()).tokens,RESERVATION_UNIT_LIMIT)
 })
 test('budget exhaustion and storage failure fail closed; failures consume their reservation', async () => {
   const settings=env();let calls=0
@@ -58,7 +58,7 @@ test('budget exhaustion and storage failure fail closed; failures consume their 
   assert.ok(!(await failure.text()).includes('secret'))
   assert.ok((await (await settings.BUCKET.get('island-v1/reservations.json')).json()).tokens>0)
   const old=await settings.BUCKET.get('island-v1/reservations.json')
-  await settings.BUCKET.put('island-v1/reservations.json',JSON.stringify({...(await old.json()),tokens:TOKEN_BUDGET}))
+  await settings.BUCKET.put('island-v1/reservations.json',JSON.stringify({...(await old.json()),tokens:RESERVATION_UNIT_LIMIT}))
   const limited=await dialogueRoute(request(),settings,provider);assert.equal(limited.status,429);assert.equal((await limited.json()).code,'BUDGET_LIMIT')
   assert.equal(calls,1)
   settings.BUCKET.get=async()=>{throw new Error('Unavailable')}
@@ -77,11 +77,11 @@ test('editable decision prompts and outside-reviewer prompts are accepted locall
 });
 
 test('expanded task allowance preserves prior reservations and permits continued local play',async()=>{
- const bucket=new MemoryBucket();await bucket.put('island-v1/reservations.json',JSON.stringify({tokens:999636,requests:231,minute:0,minuteRequests:0}));
- assert.equal(TOKEN_BUDGET,5000000);
+ const bucket=new MemoryBucket();await bucket.put('island-v1/reservations.json',JSON.stringify({tokens:4991662,requests:813,minute:0,minuteRequests:0}));
+ assert.equal(RESERVATION_UNIT_LIMIT,50000000);
  assert.equal(await reserveBudget(bucket,20000),true);
  const state=await (await bucket.get('island-v1/reservations.json')).json();
- assert.equal(state.tokens,1019636);assert.equal(state.requests,232);
+ assert.equal(state.tokens,5011662);assert.equal(state.requests,814);
 });
 
 test('schema requests bypass unconstrained cache and reserve schema overhead',async()=>{
@@ -95,4 +95,13 @@ test('schema requests bypass unconstrained cache and reserve schema overhead',as
 test('all eight concurrent agent requests can reserve within budget',async()=>{
  const bucket=new MemoryBucket();const reservations=await Promise.all(Array.from({length:8},()=>reserveBudget(bucket,5000)));
  assert.equal(reservations.filter(Boolean).length,8);assert.equal((await(await bucket.get('island-v1/reservations.json')).json()).tokens,40000);
+});
+
+test('status reports reservation units without pretending to measure billing',async()=>{
+ const settings=env();await settings.BUCKET.put('island-v1/reservations.json',JSON.stringify({tokens:4991662,requests:813,minute:0,minuteRequests:0}));
+ const response=await dialogueRoute(new Request('https://example.com/api/island/status'),settings,()=>{throw Error('No paid call expected')});
+ const {allowance}=await response.json();
+ assert.equal(allowance.reservedUnits,4991662);assert.equal(allowance.limitUnits,50000000);
+ assert.equal(allowance.pricingBasisUsdPerMillionTokens,1);assert.equal(allowance.actualSpendUsd,null);
+ assert.match(allowance.unit,/not billed tokens/);
 });

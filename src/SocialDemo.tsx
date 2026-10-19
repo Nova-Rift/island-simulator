@@ -197,7 +197,7 @@ function ConversationChat({events,group}:{events:Event[];group:number}) {
 
 function modelFailureMessage(code?:string){
  const messages:Record<string,string>={
-  BUDGET_LIMIT:'Paused: the local conservative reservation limit is reached. No rule fallback was used. More paid requests require an explicitly increased allowance.',
+  BUDGET_LIMIT:'Paused: the local conservative reservation limit is reached. This counts prompt bytes and output allowances, not actual billed tokens or dollars. Check Runpod billing before increasing the allowance. No rule fallback was used.',
   RATE_LIMIT:'Paused: too many requests this minute. Wait, then press Play to retry this turn.',
   CONTEXT_LIMIT:'Full personal history could not be accepted. Paused without removing memories. A larger-context model is needed to continue if the model limit was reached.',
   INVALID_ACTION:'Paused: the model chose an illegal action or returned an invalid decision. No rule fallback was used.',

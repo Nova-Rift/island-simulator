@@ -88,15 +88,20 @@ Ctrl+C stops it.
 
 ## Cost controls
 
-The [published Runpod rate](https://docs.runpod.io/public-endpoints/models/granite-4)
-was $10/M tokens on October19,2026; verify current pricing before use. Identical
+The [Runpod pricing page](https://www.runpod.io/pricing) lists Granite at
+**$1/M tokens**, checked October19,2026. This corrects the earlier $10/M
+assumption from the model documentation. Verify pricing before use. Identical
 requests are cached. Each uncached request reserves prompt UTF-8 bytes +1,024
 formatting units +96 output units before inference, deliberately conservative.
 
-The persistent allowance is **5,000,000 reserved units**, conservatively corresponding to the **$50 total task ceiling** at
+The persistent allowance is **50,000,000 reserved units**, conservatively corresponding to the **$50 total task ceiling** at
 that price, not monthly or account-wide. This is a conservative reservation limit,
 not measured billing. The earlier 1,000,000-unit limit was raised on October 19
-when Clark requested unblocking local paid play; previous reservations still count. Maximum600 uncached requests/minute;
+when Clark requested unblocking local paid play; corrected to50,000,000 on
+October19 at his request after checking Granite pricing. Previous reservations
+still count. The legacy ledger field named `tokens` holds reservation units,
+not actual tokens. `/api/island/status` reports this distinction and no actual
+dollar total; use Runpod billing for charges. Maximum600 uncached requests/minute;
 failures retain reservations and storage failures block inference. Private cache
 and ledger live in ignored `.local/state/`. Preserve them across restarts: deleting
 this directory resets the spending guard. No background generation or retries.
@@ -247,4 +252,4 @@ in5.9s, including a join, while unrelated agents proceeded. It started22 request
 16 completed before the bound and none was a cache hit. Outstanding requests were
 cancelled at the test bound. No full-game latency claim. End-game player recaps
 also run concurrently. The local request-rate allowance is600/minute to accommodate
-parallel lanes; the persistent5,000,000-unit spending guard is unchanged.
+parallel lanes; the persistent reservation guard remains; see Cost controls for the corrected limit.

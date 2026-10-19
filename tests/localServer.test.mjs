@@ -5,7 +5,7 @@ import { mkdtemp,rm,writeFile,chmod,symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLocalServer,loadKey } from '../server.mjs'
 import { fileStore } from '../server/file-store.mjs'
-import { reserveBudget,TOKEN_BUDGET } from '../server/dialogue.mjs'
+import { reserveBudget,RESERVATION_UNIT_LIMIT } from '../server/dialogue.mjs'
 const request={json:false,messages:[{role:'system',content:'You write natural dialogue for characters in an island survival game.'},{role:'user',content:'Maya says hello.'}]}
 test('loopback server rejects cross-origin, rebinding and secret paths; only same-origin valid POST can pay',async()=>{
  const dir=await mkdtemp('/tmp/island-server-test-');let calls=0
@@ -27,7 +27,7 @@ test('disk budget compare-and-swap survives restarts and concurrent requests can
  const dir=await mkdtemp('/tmp/island-store-test-')
  try{
   const store=fileStore(dir)
-  const results=await Promise.all(Array.from({length:8},()=>reserveBudget(store,TOKEN_BUDGET)))
+  const results=await Promise.all(Array.from({length:8},()=>reserveBudget(store,RESERVATION_UNIT_LIMIT)))
   assert.equal(results.filter(Boolean).length,1)
   assert.equal(await reserveBudget(fileStore(dir),1),false)
  }finally{await rm(dir,{recursive:true,force:true})}
