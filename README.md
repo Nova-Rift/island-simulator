@@ -184,8 +184,14 @@ recap is queued next.
 When a paid game finishes, an outside model reviewer receives the complete event
 transcript, council ballots (including recorded reasons), final state and winner.
 It writes one brief recap per player, distinguishing evidence from interpretation
-and treating dialogue as potentially deceptive. These are eight bounded model
-requests through the same local budget/cache, not additional player knowledge.
+and treating dialogue as potentially deceptive. Each recap uses eight bounded per-player requests through the same local
+budget/cache, not additional player knowledge. An in-progress recap also uses one
+forecast request to rank all remaining players from next elimination to predicted
+winner. Cards display best-first standings (#1 winner): eliminated players’ places
+come from recorded councils and cannot be changed by the model. Survivors’ places
+are explicitly speculative. Completed games use only confirmed results and need
+no forecast request. Invalid/duplicate/missing forecast IDs are rejected; retry
+regenerates only missing results, with no invented ranking fallback.
 Scripted games offer an explicit **Generate AI recap (paid)** button instead of
 charging automatically. Failed recaps can be retried without regenerating completed
 cards. Reset discards pending results. Context overflow never trims the record.
@@ -199,7 +205,10 @@ the nominal dollar estimate implies; use Runpod billing for actual charges.
 
 Live decisions use a tiny strict JSON schema containing only a legal integer
 choice. The simulator maps it to that exact action. Short speech or vote reasons
-are generated separately, without a constrained text schema. It cannot supply a different
+are generated separately using provider-enforced JSON-object mode, without a
+large constrained text schema. Assessments, recaps and rankings use this mode too;
+their fields are still validated locally. Numeric action choices retain their
+strict legal-choice schema. It cannot supply a different
 target or group. This supersedes the one-correction retry approach. The complete
 personal observation remains intact; schemas are included in request limits,
 reservations and cache keys. No unconstrained fallback or automatic retry. Provider

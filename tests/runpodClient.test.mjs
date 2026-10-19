@@ -66,3 +66,12 @@ test('provider failures keep safe distinct codes instead of collapsing into conn
  const c=createRunpodClient({apiKey:'secret',fetchImpl:async()=>Response.json({status:'FAILED',error:'private job error'})});
  await assert.rejects(c.generate([{role:'user',content:'test'}]),e=>e.code==='PROVIDER_JOB_FAILED'&&!e.message.includes('private'));
 });
+
+test('speech and recap JSON is enforced at the provider; legal choice schema takes precedence',async()=>{
+ const bodies=[];const c=createRunpodClient({apiKey:'secret',fetchImpl:async(_,options)=>{bodies.push(JSON.parse(options.body).input.openai_input);return Response.json({choices:[{message:{content:'{"summary":"ok"}'},finish_reason:'stop'}]})}});
+ await c.generate([{role:'user',content:'Return JSON.'}],true);
+ assert.deepEqual(bodies[0].response_format,{type:'json_object'});
+ await c.generate([{role:'user',content:'Choose'}],true,undefined,{type:'integer',enum:[0,1]});
+ assert.equal(bodies[1].response_format.type,'json_schema');assert.equal(bodies[1].max_tokens,8);
+ await c.generate([{role:'user',content:'Text'}],false);assert.equal(bodies[2].response_format,undefined);
+});

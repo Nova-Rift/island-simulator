@@ -22,7 +22,7 @@ export function createRunpodClient({ apiKey, endpointId = ENDPOINT, model = MODE
           messages.some(m => !['system','user','assistant'].includes(m?.role) || typeof m.content !== 'string')) throw new Error('Invalid dialogue request')
       if(new TextEncoder().encode(JSON.stringify({messages,json,schema})).length>MAX_REQUEST_BYTES)throw contextError()
       const timeout = AbortSignal.timeout(120000)
-      const requestBody = { model, messages, ...(schema?{response_format:{type:"json_schema",json_schema:{name:"legal_action",strict:true,schema}}}:{}), truncate_prompt_tokens: null, max_tokens: schema?.type==='integer'?8:MAX_OUTPUT_TOKENS, temperature: json ? 0.2 : 0.7, stream: false }
+      const requestBody = { model, messages, ...(schema?{response_format:{type:"json_schema",json_schema:{name:"legal_action",strict:true,schema}}}:json?{response_format:{type:"json_object"}}:{}), truncate_prompt_tokens: null, max_tokens: schema?.type==='integer'?8:MAX_OUTPUT_TOKENS, temperature: json ? 0.2 : 0.7, stream: false }
       const transport=async(url,options)=>{
         try{return await fetchImpl(url,options)}catch(error){
           const reason=options.signal?.reason;

@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {SocialGame} from '../src/social.mjs';
-import {scriptedDecision,decisionPrompt,summaryPrompt,parseDecision,parseAssessment,gameReviewPrompt,chooseModelDecision} from '../src/socialPolicy.ts';
+import {scriptedDecision,decisionPrompt,summaryPrompt,parseDecision,parseAssessment,gameReviewPrompt,chooseModelDecision,rankingPrompt,parseRanking,reviewStandings} from '../src/socialPolicy.ts';
 test('scripted walkthrough shows voluntary refusal, requests, consent, speech and leave before voting',()=>{
  const g=new SocialGame();const events=[];
  while(g.cycle===1&&!g.done){const o=g.observe();events.push(g.step(scriptedDecision(o)).event);}
@@ -80,4 +80,19 @@ test('decision and speech prompts name only accepted current listeners, updating
  g.step({type:'leave'},'agent',1);
  const after=decisionPrompt(g.observe(0))[0].content;
  assert.match(after,/Only Nia can hear/);assert.doesNotMatch(after,/Only Theo/);
+});
+
+test('rankings combine immutable vote outcomes with a validated prediction for survivors',()=>{
+ const g=new SocialGame();while(g.cycle===1)g.step(scriptedDecision(g.observe()));
+ const frame=g.frame(),living=frame.alive.flatMap((alive,id)=>alive?[id]:[]),out=frame.councils[0].eliminated;
+ const parsed=parseRanking(JSON.stringify({order:living}),frame);
+ const ranking=reviewStandings(frame,parsed);
+ assert.equal(ranking[0].id,living.at(-1));assert.equal(ranking[0].place,1);assert.equal(ranking[0].label,'Predicted winner');
+ assert.deepEqual(ranking.at(-1),{id:out,place:8,label:'Confirmed · voted out at vote 1'});
+ for(const order of [[],living.slice(1),living.map(()=>living[0]),[out,...living.slice(1)],living.map(String)])assert.throws(()=>parseRanking(JSON.stringify({order}),frame));
+ assert.ok(reviewStandings(frame,null).filter(r=>frame.alive[r.id]).every(r=>r.place===null));
+ assert.match(rankingPrompt(frame)[0].content,/speculative forecast/);
+ while(!g.done)g.step(scriptedDecision(g.observe()));
+ const final=reviewStandings(g.frame(),null);assert.equal(final[0].id,g.winner);assert.equal(final[0].label,'Confirmed winner');
+ assert.deepEqual(final.map(r=>r.place),[1,2,3,4,5,6,7,8]);
 });

@@ -84,3 +84,21 @@ export async function chooseModelDecision(model:SocialModel,observation:Observat
  const wording=JSON.parse(await model.generate([{role:'system',content:startingPrompt.replaceAll('{name}',observation.name)+' Your action has already been selected. Do not select a different action. '+instruction+(action.type==='say'?audienceInstruction(observation):'')},{role:'user',content:JSON.stringify({...observation,selectedAction:action})}],true))
  return parseDecision(JSON.stringify({...action,text:wording.text,reason:wording.reason}),observation)
 }
+
+export function rankingPrompt(frame:SocialFrame) {
+ return [{role:'system' as const,content:'You are an outside observer predicting elimination order in an ongoing fictional social voting game. Use only the supplied snapshot: conversations, relationships, recorded votes and uncertainty. Speech may be deceptive. Predict the order in which the remaining players will leave: next voted out first, predicted winner last. Include each remaining player ID exactly once and no eliminated players. This is a speculative forecast, not a confirmed outcome or calibrated probability. Return only JSON {"order":[player IDs in predicted elimination order]}. No explanation or other fields.'},
+ {role:'user' as const,content:JSON.stringify({remaining:frame.alive.flatMap((alive,id)=>alive?[{id,name:PEOPLE[id]}]:[]),game:frame})}]
+}
+export function parseRanking(text:string,frame:SocialFrame):number[] {
+ const order=JSON.parse(text)?.order,remaining=frame.alive.flatMap((alive,id)=>alive?[id]:[])
+ if(!Array.isArray(order)||order.length!==remaining.length||new Set(order).size!==remaining.length||order.some(id=>!Number.isInteger(id)||!remaining.includes(id)))throw new Error('Invalid elimination forecast')
+ return order
+}
+export function reviewStandings(frame:SocialFrame,prediction:number[]|null) {
+ const eliminated=frame.councils.map((c,index)=>({id:c.eliminated,place:PEOPLE.length-index,label:`Confirmed · voted out at vote ${c.number}`}))
+ if(frame.phase==='finished'&&frame.winner!==null)return [{id:frame.winner,place:1,label:'Confirmed winner'},...eliminated.reverse()]
+ if(!prediction)return [...frame.alive.flatMap((alive,id)=>alive?[{id,place:null,label:'Still playing · prediction unavailable'}]:[]),...eliminated.reverse()]
+ // Facts always come from the engine. The model ranks remaining players only.
+ const living=prediction.map((id,index)=>({id,place:prediction.length-index,label:index===prediction.length-1?'Predicted winner':`Predicted · out at vote ${frame.councils.length+index+1}`}))
+ return [...living.reverse(),...eliminated.reverse()]
+}
