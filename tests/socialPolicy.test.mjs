@@ -33,8 +33,8 @@ test('assessment requires a finite subjective probability and usable summary',()
  assert.throws(()=>parseAssessment('{"summary":"" ,"winProbability":0.5}'));
 });
 
-test('post-game reviewer receives every event and ballot only after completion',()=>{
- const g=new SocialGame();assert.throws(()=>gameReviewPrompt(g.frame(),0));
+test('viewer recap supports snapshots without inventing outcomes or entering agent memory',()=>{
+ const g=new SocialGame();const before=g.observe();const partial=gameReviewPrompt(g.frame(),0);assert.match(partial[0].content,/game is not over/);assert.match(partial[0].content,/do not invent a winner/);assert.deepEqual(g.observe(),before);assert.equal(JSON.parse(partial[1].content).game.winner,null);
  while(!g.done)g.step(scriptedDecision(g.observe()));
  const frame=g.frame(),payload=JSON.parse(gameReviewPrompt(frame,3)[1].content);
  assert.deepEqual(payload.game,frame);assert.equal(payload.player,3);

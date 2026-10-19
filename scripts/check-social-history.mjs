@@ -47,14 +47,15 @@ try {
   const {scriptedDecision}=await import('../src/socialPolicy.ts')
   const game=new SocialGame(),actions=[]
   while(game.turn<20){const action=scriptedDecision(game.observe());actions.push(action.type==='invite'?{...action,group:999}:action);game.step(action)}
-  await evaluate(`window.mockActions=${JSON.stringify(actions)};window.fetch=async(url)=>{
+  await evaluate(`window.reviewSnapshots=[];window.mockActions=${JSON.stringify(actions)};window.fetch=async(url)=>{
     if(url==='/api/island/status')return Response.json({ready:true});
     if(url==='/api/island/dialogue')throw Error('Unconfigured mock');
     throw Error('Unexpected fetch '+url)
   };window.fetch=async(url,options)=>{
     if(url==='/api/island/status')return Response.json({ready:true});
     const input=JSON.parse(options.body);window.lastPrompt=input.messages[0].content;const observation=JSON.parse(input.messages[1].content);let output;
-    if(input.schema){const action=window.mockActions.shift();window.lastAction=action;output=observation.choices.find(c=>c.action.type===action.type&&c.action.target===action.target&&(c.action.group===undefined||c.action.group===action.group)).choice}
+    if(observation.game){window.reviewSnapshots.push(observation.game);output={summary:'Snapshot recap at turn '+observation.game.turn}}
+    else if(input.schema){const action=window.mockActions.shift();window.lastAction=action;output=observation.choices.find(c=>c.action.type===action.type&&c.action.target===action.target&&(c.action.group===undefined||c.action.group===action.group)).choice}
     else if(observation.selectedAction)output={text:window.lastAction.text||'',reason:window.lastAction.reason||''};
     else output={summary:'My ally may help, but I remain vulnerable.',winProbability:0.42};
     return Response.json({text:JSON.stringify(output)})
@@ -70,6 +71,11 @@ try {
   assert.match(await evaluate("document.querySelector('.social-pending-invitations').textContent"),/Maya invited Theo/)
   assert.equal(await evaluate("document.querySelectorAll('.social-alone .social-person').length"),8)
 
+  await click('Summarize game so far (paid)');await delay(300)
+  assert.equal(await evaluate('window.reviewSnapshots.length'),8)
+  assert.match(await evaluate("document.querySelector('.social-review').textContent"),/Snapshot at turn 1/)
+  assert.match(await evaluate("document.querySelector('.social-state').textContent"),/turn 1 ·/)
+
   for(let i=1;i<20;i++){await click('Next turn');await delay(100)}
   assert.match(await evaluate("document.querySelector('.social-summaries').textContent"),/Own estimate of winning: 42%/)
   const chat=await evaluate("({text:document.querySelector('[aria-label=\"Messages in conversation 1\"]').textContent,count:document.querySelectorAll('[aria-label=\"Messages in conversation 1\"] .social-chat-message').length})")
@@ -81,6 +87,11 @@ try {
   assert.match(await evaluate("document.querySelector('.social-transcript').textContent"),/Theo, I would like us to support/)
   await evaluate("document.querySelectorAll('.social-history select')[1].value='5';document.querySelectorAll('.social-history select')[1].dispatchEvent(new Event('change',{bubbles:true}))")
   assert.doesNotMatch(await evaluate("document.querySelector('.social-transcript').textContent"),/Theo, I would like us to support/)
+  await click('Summarize game so far (paid)');await delay(300)
+  assert.equal(await evaluate('window.reviewSnapshots.length'),16)
+  assert.match(await evaluate("document.querySelector('.social-review').textContent"),/Snapshot at turn 20/)
+  assert.ok(await evaluate("Array.from(document.querySelectorAll('.social-review article p')).every(p=>p.textContent==='Snapshot recap at turn 20')"))
+  assert.ok(await evaluate('window.reviewSnapshots.every(s=>s.phase!=="finished"&&s.winner===null)'))
   await click('Reset');await delay(100)
   assert.doesNotMatch(await evaluate("document.querySelector('.social-summaries').textContent"),/42%/)
   await evaluate("document.querySelector('.social-paid input').click()")

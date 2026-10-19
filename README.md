@@ -171,7 +171,15 @@ an invitation or someone mentioning “conversation N” while talking. Such rep
 remain attributed, unverified speech; the default prompt allows asking questions,
 refusing disclosure, telling the truth or lying. The viewer can still see all groups.
 
-### End-of-game AI recap
+### On-demand and end-of-game AI recaps
+
+**Summarize game so far (paid)** is available after the first action, including
+while play continues. It captures an immutable snapshot, labels its turn/vote
+count and describes only observed events, without inventing a winner. Request
+another summary later to update all player cards. Summaries are viewer-only and
+never enter agents’ observations. A separate reviewer connection keeps gameplay
+and summaries independent. If the game ends during a requested recap, its final
+recap is queued next.
 
 When a paid game finishes, an outside model reviewer receives the complete event
 transcript, council ballots (including recorded reasons), final state and winner.
