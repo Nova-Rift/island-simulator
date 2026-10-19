@@ -1,0 +1,17 @@
+{
+  "name": "island-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.6.0" },
+  "scripts": {
+    "start": "node server.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  }
+}

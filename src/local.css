@@ -1,0 +1,2 @@
+.local-shell{max-width:1600px;margin:auto;padding:24px clamp(16px,4vw,64px)}
+.local-shell>header{margin-bottom:24px}.local-shell>header h1{font-size:clamp(32px,4vw,54px);margin:0 0 12px}.local-shell>header p{max-width:900px;line-height:1.6}

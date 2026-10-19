@@ -1,0 +1,85 @@
+import { createRunpodClient, MODEL, MAX_OUTPUT_TOKENS } from './runpod-client.mjs'
+
+const encoder = new TextEncoder()
+const BUDGET_KEY = 'island-v1/reservations.json'
+// $10 at the published $10 / million tokens. Count UTF-8 bytes + generous
+// template overhead as tokens; reserve BEFORE inference and never refund errors.
+// Durable across deploys. Do not reset this object to silently renew the budget.
+export const TOKEN_BUDGET = 1_000_000
+const RATE_LIMIT = 100
+const jsonResponse = (data, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
+
+export function validateDialogue(data) {
+  if (!data || typeof data.json !== 'boolean' || !Array.isArray(data.messages) || data.messages.length !== 2) return false
+  const [system, user] = data.messages
+  if (system?.role !== 'system' || user?.role !== 'user' || typeof system.content !== 'string' || typeof user.content !== 'string') return false
+  if (!system.content.startsWith('You write natural dialogue for characters in an island survival game.') &&
+      !/^You are (Maya|Theo|Nia|Leo|Ava|Sam|Iris|Kai)\b/.test(system.content)) return false
+  return encoder.encode(JSON.stringify(data)).length <= 12000
+}
+
+export async function reserveBudget(bucket, tokens, now = Date.now()) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const old = await bucket.get(BUDGET_KEY)
+    const state = old ? await old.json() : { tokens: 0, requests: 0, minute: 0, minuteRequests: 0 }
+    if (!Number.isSafeInteger(state.tokens) || state.tokens < 0 || !Number.isSafeInteger(tokens) || tokens < 1) throw new Error('Invalid usage ledger')
+    const minute = Math.floor(now / 60000)
+    const minuteRequests = state.minute === minute ? state.minuteRequests : 0
+    if (state.tokens + tokens > TOKEN_BUDGET || minuteRequests >= RATE_LIMIT) return false
+    const next = { tokens: state.tokens + tokens, requests: state.requests + 1, minute, minuteRequests: minuteRequests + 1 }
+    const result = await bucket.put(BUDGET_KEY, JSON.stringify(next), {
+      onlyIf: old ? { etagMatches: old.etag } : new Headers({ 'If-None-Match': '*' }),
+      httpMetadata: { contentType: 'application/json' },
+    })
+    if (result) return true
+  }
+  return false
+}
+
+export async function dialogueRoute(request, env, fetchImpl = fetch) {
+  const path = new URL(request.url).pathname
+  if (!env.RUNPOD_INFERENCE_KEY || !env.BUCKET) return jsonResponse({ error: 'Conversations are temporarily unavailable.' }, 503)
+  if (path === '/api/island/status') {
+    if (request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405)
+    return jsonResponse({ ready: true, model: MODEL, provider: 'Runpod' })
+  }
+  if (path !== '/api/island/dialogue') return jsonResponse({ error: 'Not found' }, 404)
+  if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405)
+  const origin = request.headers.get('Origin')
+  if (!origin || origin !== new URL(request.url).origin) return jsonResponse({ error: 'Same-origin requests only' }, 403)
+  if (!request.headers.get('Content-Type')?.startsWith('application/json')) return jsonResponse({ error: 'JSON required' }, 415)
+  if (Number(request.headers.get('Content-Length') || 0) > 12000) return jsonResponse({ error: 'Request too large' }, 413)
+  let raw
+  try {
+    const reader = request.body?.getReader()
+    if (!reader) return jsonResponse({ error: 'Missing request' }, 400)
+    const chunks = []; let size = 0
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > 12000) { await reader.cancel(); return jsonResponse({ error: 'Request too large' }, 413) }
+      chunks.push(value)
+    }
+    const bytes = new Uint8Array(size); let offset = 0
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
+    raw = JSON.parse(new TextDecoder().decode(bytes))
+  } catch { return jsonResponse({ error: 'Invalid JSON' }, 400) }
+  if (!validateDialogue(raw)) return jsonResponse({ error: 'Invalid island dialogue' }, 400)
+  const { messages, json } = raw
+  const canonical = JSON.stringify({ model: MODEL, messages, json })
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(canonical))
+  const cacheKey = 'island-v1/dialogue/' + Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')
+  try {
+    const cached = await env.BUCKET.get(cacheKey)
+    if (cached) return jsonResponse({ text: await cached.text(), cached: true })
+    // Budget is atomic across isolates/visitors; if storage is unavailable, fail closed.
+    if (!await reserveBudget(env.BUCKET, encoder.encode(JSON.stringify(messages)).length + 1024 + MAX_OUTPUT_TOKENS))
+      return jsonResponse({ error: 'Conversation allowance reached. Continue without dialogue; see the local usage allowance in README.' }, 429)
+    const client = createRunpodClient({ apiKey: env.RUNPOD_INFERENCE_KEY, fetchImpl })
+    const text = await client.generate(messages, json, request.signal)
+    if (json) JSON.parse(text)
+    await env.BUCKET.put(cacheKey, text, { httpMetadata: { contentType: 'text/plain' } })
+    return jsonResponse({ text, cached: false })
+  } catch { return jsonResponse({ error: 'Conversations are temporarily unavailable. Try again or continue without dialogue.' }, 503) }
+}
