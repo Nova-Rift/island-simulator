@@ -28,7 +28,8 @@ export class SocialGame {
       version:SOCIAL_VERSION, agent, name:PEOPLE[agent], cycle:this.cycle, round:this.round, rounds:this.rounds, phase:this.phase,
       remaining:this.remaining.map(id=>({id,name:PEOPLE[id]})),
       // Only current own membership is visible; other groups must be encountered or reported.
-      groups:group ? [{id:group.id,members:group.members.slice()}] : [],
+      groups:group && group.members.length>1 ? [{id:group.id,members:group.members.slice()}] : [],
+      pendingInvitations:group && group.members.length===1 ? [{id:group.id,invited:group.invited.slice()}] : [],
       knownConversations:[...this.knownGroups[agent]], socialHistory:copy(this.socialHistory[agent]),
       invitations:this.groups.filter(g=>g.invited.includes(agent)).map(g=>g.id),
       exclusionProposals:group ? copy(group.proposals) : [],
@@ -66,6 +67,7 @@ export class SocialGame {
     group.members=group.members.filter(i=>i!==agent);
     // Membership changes invalidate pending exclusion votes; thresholds never drift.
     group.proposals=[];group.requests=[];
+    if(group.members.length===1)this.statuses[group.members[0]]=group.invited.length?'Waiting for an invitation reply':'On their own';
     if(!group.members.length)this.groups=this.groups.filter(g=>g!==group);
   }
   setSummary(agent,text) { if(this.alive[agent] && brief(text)){this.summaries[agent]=brief(text);this.intentions[agent].push({turn:this.turn,cycle:this.cycle,text:brief(text)});} }
@@ -86,11 +88,11 @@ export class SocialGame {
         if(!group){group={id:this.nextGroup++,members:[actor],invited:[],blocked:[],proposals:[],requests:[]};this.groups.push(group);}
         group.invited.push(target); audience=[...group.members,target];
         text=`${name} invites ${PEOPLE[target]} to conversation ${group.id}.`;
-        this.statuses[actor]='Inviting someone';break;
+        this.statuses[actor]=group.members.length===1?'Waiting for an invitation reply':'Inviting someone';break;
       case 'join':
         group=this.groups.find(g=>g.id===chosen.group);group.members.push(actor);group.proposals=[];group.requests=[];
         for(const g of this.groups){g.invited=g.invited.filter(i=>i!==actor);g.requests=g.requests.filter(r=>r.agent!==actor);}
-        audience=group.members.slice();text=`${name} accepts the invitation to conversation ${group.id}.`;this.statuses[actor]='Joined the conversation';break;
+        audience=group.members.slice();text=`${name} accepts the invitation to conversation ${group.id}.`;for(const id of group.members)this.statuses[id]='In a conversation';break;
       case 'request':
         group=this.groups.find(g=>g.id===chosen.group);group.requests.push({agent:actor,yes:[]});
         audience=[actor,...group.members];text=`${name} asks to join conversation ${group.id}.`;this.statuses[actor]='Asked to join';break;
@@ -103,16 +105,17 @@ export class SocialGame {
           if(group.members.every(id=>request.yes.includes(id))){
             group.members.push(target);group.proposals=[];group.requests=[];
             for(const g of this.groups){g.invited=g.invited.filter(i=>i!==target);g.requests=g.requests.filter(r=>r.agent!==target);}
-            text+=` Accepted by ${request.yes.map(id=>PEOPLE[id]).join(', ')}; ${PEOPLE[target]} joins.`;this.statuses[target]='Request accepted';
+            text+=` Accepted by ${request.yes.map(id=>PEOPLE[id]).join(', ')}; ${PEOPLE[target]} joins.`;for(const id of group.members)this.statuses[id]='In a conversation';
           }
         }
         this.statuses[actor]='Answered a join request';break;
       }
       case 'decline':
         group=this.groups.find(g=>g.id===chosen.group);group.invited=group.invited.filter(i=>i!==actor);
+        if(group.members.length===1&&!group.invited.length)this.statuses[group.members[0]]='On their own';
         audience=[actor,...group.members];text=`${name} declines the invitation.`;this.statuses[actor]='Declined an invitation';break;
       case 'leave':
-        audience=group.members.slice();text=`${name} leaves the conversation.`;this.removeMember(group,actor);this.statuses[actor]='Chose to leave';break;
+        audience=group.members.slice();text=group.members.length===1?`${name} cancels the pending conversation.`:`${name} leaves the conversation.`;this.removeMember(group,actor);this.statuses[actor]='Chose to leave';break;
       case 'say':
         audience=group.members.slice();listeners=audience.filter(i=>i!==actor);
         text=brief(action.text);this.statuses[actor]='Speaking';break;
@@ -181,7 +184,7 @@ export class SocialGame {
   }
   frame() {
     return copy({version:SOCIAL_VERSION,seed:this.seed,turn:this.turn,cycle:this.cycle,round:this.round,rounds:this.rounds,
-      phase:this.phase,current:this.current,alive:this.alive,groups:this.groups,summaries:this.summaries,statuses:this.statuses,
+      phase:this.phase,current:this.current,alive:this.alive,groups:this.groups.filter(g=>g.members.length>1),pendingConversations:this.groups.filter(g=>g.members.length===1),summaries:this.summaries,statuses:this.statuses,
       events:this.events,councils:this.councils,winner:this.winner,rewards:this.rewards});
   }
 }

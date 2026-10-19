@@ -126,7 +126,14 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    </section>)}
    {alone.length>0&&<section className="social-group social-alone" aria-label="Agents on their own"><h3>On their own<small>Participation is optional</small></h3><div className="social-people">{alone.map(i=>person(i))}</div></section>}
   </div>
-  <p className="social-viewer">You can see every group. Agents only hear conversations they have joined.</p>
+  {frame.pendingConversations.some(g=>g.invited.length||g.requests.length)&&<div className="social-pending-invitations" aria-label="Pending invitations">
+   <strong>Pending invitations</strong>
+   {frame.pendingConversations.map(group=><div key={group.id}>
+    {group.invited.length>0&&<p>{PEOPLE[group.members[0]]} invited {group.invited.map(id=>PEOPLE[id]).join(', ')} · waiting for acceptance</p>}
+    {group.requests.map(r=><p key={r.agent}>{PEOPLE[r.agent]} asked to talk with {PEOPLE[group.members[0]]} · waiting for acceptance</p>)}
+   </div>)}
+  </div>}
+  <p className="social-viewer">A conversation starts when someone accepts. You can see every group. Agents only hear conversations they have joined.</p>
   <div className="social-summaries" aria-label="Latest conversation assessments">{PEOPLE.map((name,i)=>{
    const assessment=assessments[i]
    return <article key={name} className={frame.alive[i]?'':'is-out'}><strong>{name}{frame.alive[i]?'':' · voted out'}</strong>

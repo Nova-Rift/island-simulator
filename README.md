@@ -188,3 +188,8 @@ An invalid model decision gets one corrective model request with the complete
 personal observation and exact legal choices. A second invalid choice pauses with
 its rejected action and legal alternatives; it never becomes a rule fallback.
 This extra request uses the same local budget. Service/budget failures are not retried.
+
+Inviting someone does not immediately start a conversation. Both people remain
+on their own until acceptance; outstanding invitations appear separately. Chat
+panels require at least two participants. If only one remains, they return to the
+on-their-own area and the transcript stays in history.

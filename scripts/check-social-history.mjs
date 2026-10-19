@@ -63,6 +63,10 @@ try {
   await click('Next turn');await delay(100)
   assert.match(await evaluate('window.lastPrompt'),/CUSTOM_PROMPT_CHECK/)
   assert.match(await evaluate('window.lastPrompt'),/You are Maya/)
+  assert.equal(await evaluate("document.querySelectorAll('.social-group:not(.social-alone)').length"),0)
+  assert.match(await evaluate("document.querySelector('.social-pending-invitations').textContent"),/Maya invited Theo/)
+  assert.equal(await evaluate("document.querySelectorAll('.social-alone .social-person').length"),8)
+
   for(let i=1;i<20;i++){await click('Next turn');await delay(100)}
   assert.match(await evaluate("document.querySelector('.social-summaries').textContent"),/Own estimate of winning: 42%/)
   const chat=await evaluate("({text:document.querySelector('[aria-label=\"Messages in conversation 1\"]').textContent,count:document.querySelectorAll('[aria-label=\"Messages in conversation 1\"] .social-chat-message').length})")
