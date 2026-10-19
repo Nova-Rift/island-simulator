@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { PEOPLE, SocialGame } from './social.mjs'
-import type { Action, SocialFrame } from './social.mjs'
+import type { Action, SocialFrame, Event } from './social.mjs'
 import { decisionPrompt, parseDecision, scriptedDecision, summaryPrompt, parseAssessment } from './socialPolicy'
 import type { SocialModel } from './socialPolicy'
 import './social.css'
@@ -61,12 +61,9 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
   return()=>clearTimeout(timer)
  },[playing,busy,frame.turn,speed])
  function toggle(){if(playing)pause();else{running.current=true;setPlaying(true)}}
- function person(agent:number,groupId:number|null){
-  const lastSpeech=frame.events.slice().reverse().find(e=>e.type==='say'&&e.cycle===frame.cycle&&e.group===groupId)
-  const speech=groupId!==null&&lastSpeech?.actor===agent?lastSpeech:undefined
+ function person(agent:number){
   const pending=frame.groups.filter(g=>g.requests.some(r=>r.agent===agent)).map(g=>g.id)
   return <div key={agent} className={`social-person${frame.current===agent?' is-next':''}`} data-agent={agent}>
-   {speech&&<div className="social-speech" data-speaker={agent}><small>To this group only</small><p>{speech.text}</p></div>}
    <div className="social-avatar" style={{color:`hsl(${agent*45},45%,35%)`}} aria-hidden="true"><svg viewBox="0 0 42 52"><circle cx="21" cy="12" r="9" fill="currentColor"/><path d="M6 49V35a15 15 0 0 1 30 0v14" fill="currentColor"/></svg></div>
    <strong>{PEOPLE[agent]}</strong><span title={frame.statuses[agent]}>{pending.length?`Asked to join #${pending.join(', #')}`:frame.statuses[agent]}</span>
   </div>
@@ -88,12 +85,13 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
   <div className="social-board">
    {frame.groups.map(group=><section className="social-group" key={group.id} aria-label={`Private conversation ${group.id}`}>
     <h3>Conversation {group.id}<small>Private · {group.members.length} {group.members.length===1?'person':'people'}</small></h3>
-    <div className="social-people">{group.members.map(i=>person(i,group.id))}</div>
+    <div className="social-people">{group.members.map(i=>person(i))}</div>
+    <ConversationChat events={frame.events.filter(e=>e.cycle===frame.cycle&&e.group===group.id)} group={group.id}/>
     {group.invited.length>0&&<p className="social-pending">Invited: {group.invited.map(i=>PEOPLE[i]).join(', ')} · free to decline</p>}
     {group.requests.map(r=><p className="social-pending" key={r.agent}>{PEOPLE[r.agent]} asked to join · {r.yes.length}/{group.members.length} agree</p>)}
     {group.proposals.map(p=><p className="social-pending" key={p.target}>Exclude {PEOPLE[p.target]}? {p.yes.length}/{p.needed} supporters</p>)}
    </section>)}
-   {alone.length>0&&<section className="social-group social-alone" aria-label="Agents on their own"><h3>On their own<small>Participation is optional</small></h3><div className="social-people">{alone.map(i=>person(i,null))}</div></section>}
+   {alone.length>0&&<section className="social-group social-alone" aria-label="Agents on their own"><h3>On their own<small>Participation is optional</small></h3><div className="social-people">{alone.map(i=>person(i))}</div></section>}
   </div>
   <p className="social-viewer">You can see every group. Agents only hear conversations they have joined.</p>
   <div className="social-summaries" aria-label="Latest conversation assessments">{PEOPLE.map((name,i)=>{
@@ -118,4 +116,23 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
   {frame.councils.length>0&&<div className="social-results">{frame.councils.slice().reverse().map(c=><details key={c.number} open={c.number===frame.councils.length}><summary>Vote {c.number}: {PEOPLE[c.eliminated]} leaves{c.tied?' (seeded tie-break)':''}</summary><ul>{c.ballots.map(v=><li key={v.voter}>{PEOPLE[v.voter]} → {PEOPLE[v.target]} <small>{v.source==='llm'?'AI choice':v.source==='fallback'?'Rule fallback':'Scripted choice'}</small></li>)}</ul></details>)}</div>}
   <details className="social-rules"><summary>How it works</summary><p>Invite someone or ask to join. Invitations can be declined; join requests need all current members to agree. Anyone can stay silent or leave. Removing someone requires a majority of the other members and at least two supporters. Excluded agents cannot rejoin that conversation. New members cannot hear earlier messages.</p><p>After four rounds, every remaining agent votes for someone else. Most votes eliminates one; a seeded draw breaks ties. Groups reset after each vote. Last agent standing gets +1; everyone else gets 0. This is a simplified social game, not a model of real human behavior.</p><p><a href="https://github.com/Nova-Rift/island-simulator">Run locally / source</a> · <a href="https://github.com/Nova-Rift/survival-env/blob/browser-environment/browser/SOCIAL.md">Environment API</a>{!makeModel&&<> · <a href="/simulations/">Earlier simulations</a></>}</p></details>
  </section>
+}
+
+function ConversationChat({events,group}:{events:Event[];group:number}) {
+ const box=useRef<HTMLDivElement>(null),following=useRef(true)
+ const [unread,setUnread]=useState(false)
+ const lastTurn=events.at(-1)?.turn
+ function bottom(){if(box.current)box.current.scrollTop=box.current.scrollHeight;following.current=true;setUnread(false)}
+ useEffect(()=>{if(following.current)bottom();else setUnread(true)},[lastTurn])
+ return <div className="social-chat-wrap">
+  <div className="social-chat" ref={box} role="log" aria-label={`Messages in conversation ${group}`} aria-live="polite" aria-relevant="additions" tabIndex={0} onScroll={()=>{
+   const el=box.current!;following.current=el.scrollHeight-el.scrollTop-el.clientHeight<32;if(following.current)setUnread(false)
+  }}>
+   {events.map(e=>e.type==='say'?<article className="social-chat-message" key={e.turn} data-speaker={e.actor}>
+    <header><strong>{PEOPLE[e.actor]}</strong><small>Round {e.round} · turn {e.turn}</small></header><p>{e.text}</p>
+   </article>:<p className="social-chat-event" key={e.turn}>{e.text}</p>)}
+   {!events.some(e=>e.type==='say')&&<p className="social-chat-event">Waiting for the first message…</p>}
+  </div>
+  {unread&&<button className="social-chat-new" onClick={bottom}>New activity ↓</button>}
+ </div>
 }

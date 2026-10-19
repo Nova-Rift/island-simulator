@@ -140,3 +140,8 @@ starts free; enable **Use my local Runpod (paid)** to request live AI choices.
 
 Optional DOM-only verification with mocked model responses (no inference charge):
 `node --experimental-strip-types scripts/check-social-history.mjs http://127.0.0.1:4174/`.
+
+Active conversations display a scrolling chatbox beside their participants. Every
+message stays in the chat, with speaker and turn labels. New activity follows the
+bottom unless you scroll up to read; use “New activity” to return to the latest
+messages. Closed conversations remain available in the history panel below.

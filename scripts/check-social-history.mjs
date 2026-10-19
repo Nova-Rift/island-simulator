@@ -60,6 +60,12 @@ try {
   await delay(100)
   for(let i=0;i<12;i++){await click('Next turn');await delay(100)}
   assert.match(await evaluate("document.querySelector('.social-summaries').textContent"),/Own estimate of winning: 42%/)
+  const chat=await evaluate("({text:document.querySelector('[aria-label=\"Messages in conversation 2\"]').textContent,count:document.querySelectorAll('[aria-label=\"Messages in conversation 2\"] .social-chat-message').length})")
+  assert.equal(chat.count,2)
+  assert.match(chat.text,/Leo, I would like us to support/)
+  assert.match(chat.text,/I’m willing to listen/)
+  assert.ok(await evaluate(`Array.from(document.querySelectorAll('.social-chat-message')).every(el=>{const next=el.nextElementSibling;return !next||el.getBoundingClientRect().bottom<=next.getBoundingClientRect().top})`))
+
   assert.match(await evaluate("document.querySelector('.social-transcript').textContent"),/Leo, I would like us to support/)
   await evaluate("document.querySelectorAll('.social-history select')[1].value='5';document.querySelectorAll('.social-history select')[1].dispatchEvent(new Event('change',{bubbles:true}))")
   assert.doesNotMatch(await evaluate("document.querySelector('.social-transcript').textContent"),/Leo, I would like us to support/)

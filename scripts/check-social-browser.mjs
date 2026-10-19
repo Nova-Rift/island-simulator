@@ -52,7 +52,7 @@ try {
   for(let turn=0;turn<40;turn++){
    await click('Next turn');await delay(70)
    const state=await evaluate(`({status:document.querySelector('.social-status').textContent,turn:document.querySelector('.social-state').textContent,
-    bubbles:[...document.querySelectorAll('.social-speech')].map(e=>{const r=e.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom}})})`)
+    bubbles:[...document.querySelectorAll('.social-chat-message')].map(e=>{const r=e.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom}})})`)
    seen.push(state.status)
    for(let a=0;a<state.bubbles.length;a++)for(let b=a+1;b<state.bubbles.length;b++){
     const x=state.bubbles[a],y=state.bubbles[b];assert.ok(Math.min(x.right,y.right)<=Math.max(x.left,y.left)||Math.min(x.bottom,y.bottom)<=Math.max(x.top,y.top),'Speech overlaps')
@@ -72,7 +72,7 @@ try {
    await click('Reset');await delay(100)
    for(let i=0;i<16;i++){await click('Next turn');await delay(40)}
    assert.ok(await evaluate("document.documentElement.scrollWidth<=window.innerWidth+1"),'Horizontal overflow')
-   const bubbles=await evaluate("[...document.querySelectorAll('.social-speech')].map(e=>({client:e.clientWidth,scroll:e.scrollWidth}))")
+   const bubbles=await evaluate("[...document.querySelectorAll('.social-chat-message')].map(e=>({client:e.clientWidth,scroll:e.scrollWidth}))")
    assert.ok(bubbles.every(b=>b.scroll<=b.client+1),'Speech overflows')
   }
   assert.deepEqual(paidCalls,[],'Scripted mode must not contact inference')
