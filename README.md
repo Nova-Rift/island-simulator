@@ -250,3 +250,8 @@ in5.9s, including a join, while unrelated agents proceeded. It started22 request
 cancelled at the test bound. No full-game latency claim. End-game player recaps
 also run concurrently. The local request-rate allowance is600/minute to accommodate
 parallel lanes; the persistent reservation guard remains; see Cost controls for the corrected limit.
+
+Speech and decision prompts explicitly name the current accepted conversation
+participants and listener count, derived only from the agent’s own membership.
+One-to-one exchanges address the other person directly. Pending invitees and
+former members are not listeners; the audience is rebuilt for each decision.

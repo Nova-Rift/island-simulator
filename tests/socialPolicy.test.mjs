@@ -61,3 +61,23 @@ test('constrained choices map exactly to legal actions and cannot override targe
  model.generate=async()=>'999';await assert.rejects(chooseModelDecision(model,o),/valid constrained choice/);
  model.generate=async()=>{throw Object.assign(Error('budget'),{code:'BUDGET_LIMIT'})};await assert.rejects(chooseModelDecision(model,o),e=>e.code==='BUDGET_LIMIT');
 });
+
+test('decision and speech prompts name only accepted current listeners, updating after joins and leaves',async()=>{
+ const g=new SocialGame({concurrent:true});g.step({type:'invite',target:1},'agent',0);
+ assert.match(decisionPrompt(g.observe(0))[0].content,/on your own: no conversation listeners/);
+ g.step({type:'join',group:1},'agent',1);g.step({type:'invite',target:2},'agent',0);
+ const o=g.observe(0),prompt=decisionPrompt(o)[0].content;
+ assert.match(prompt,/2 participants: you \(Maya\) and Theo/);assert.match(prompt,/one-to-one conversation/);
+ assert.doesNotMatch(prompt,/Only .*Nia.*can hear/);
+ const captured=[];
+ await chooseModelDecision({generate:async(messages,json,schema)=>{
+  captured.push(messages);return schema?String(o.legal.findIndex(a=>a.type==='say')):JSON.stringify({text:'Theo, who do you trust?'});
+ }},o,'Custom instructions for {name}.');
+ assert.match(captured[0][0].content,/Only Theo can hear/);
+ assert.match(captured[1][0].content,/Address Theo directly/);
+ g.step({type:'join',group:1},'agent',2);
+ assert.match(decisionPrompt(g.observe(0))[0].content,/3 participants: you \(Maya\) and Theo, Nia/);
+ g.step({type:'leave'},'agent',1);
+ const after=decisionPrompt(g.observe(0))[0].content;
+ assert.match(after,/Only Nia can hear/);assert.doesNotMatch(after,/Only Theo/);
+});

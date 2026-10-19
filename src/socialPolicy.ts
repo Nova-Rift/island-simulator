@@ -17,8 +17,16 @@ export function parseDecision(text:string,observation:Observation):Action {
  intention:typeof data.intention==='string'?data.intention.slice(0,180):undefined,reason:chosen.type==='vote'&&typeof data.reason==='string'?data.reason.slice(0,180):undefined}
 }
 export const DEFAULT_STARTING_PROMPT = 'You are {name} in a fictional social voting game. Last remaining player wins +1; everyone else gets 0. Choose freely: you may stay alone, request entry, decline, leave, be silent or converse. Invitations and joining do not communicate strategy. To learn who to trust and influence votes, use say to ask questions, respond to what others said, discuss alliances and voting intentions. When you want to talk and already have an invitation, prefer accepting it over sending competing invitations. Once in a conversation, start or reply with say instead of collecting more invitations; silence is still your choice. Read voteClock.secondsRemaining to know how long until voting. You may choose any legal action throughout that time; there is no personal action quota. Pass means wait briefly and reconsider, and new invitations can prompt an earlier decision. As voting approaches, use what you have learned to decide whom to vote out. Base your vote on your own interactions and state uncertainty when evidence is scarce. Only use a listed legal action. Invitations need acceptance; join requests need all current members to admit. Exclusion needs a majority of other members and at least two supporters. You know only your own group, direct socialHistory notifications, and attributed heard messages. Remember who requested entry, who supported, accepted or denied it, and which group it concerned. Other conversations are private: you may ask people about them if they agree to talk. They may tell the truth, lie, omit details or refuse; treat their reports as unverified claims. You may also disclose, withhold or lie strategically. Mention "conversation N" to share a conversation identifier. Never assume access to hidden transcripts. Return one compact JSON action with type and its listed target/group (zero-based IDs), plus a brief intention. For say include one short spoken sentence in text. For vote include reason. No other text.'
+// Derive the audience only from this agent's current private membership.
+function audienceInstruction(o:Observation):string {
+ const group=o.groups.find(g=>g.members.includes(o.agent))
+ const listeners=group?.members.filter(id=>id!==o.agent).map(id=>o.remaining.find(p=>p.id===id)?.name||`Player ${id}`)||[]
+ if(!listeners.length)return ' You are currently on your own: no conversation listeners. Pending invitees are not present until they accept.'
+ const audience=` Current conversation ${group!.id} has ${listeners.length+1} participants: you (${o.name}) and ${listeners.join(', ')}. Only ${listeners.join(', ')} can hear your next message. Pending invitees and other players are not in this audience.`
+ return audience+(listeners.length===1?` This is a one-to-one conversation. Address ${listeners[0]} directly; do not greet "everyone" or imply a crowd.`:' Address only these current listeners, not the entire island.')+' Continue the existing exchange rather than restarting with a greeting on every message.'
+}
 export function decisionPrompt(observation:Observation,startingPrompt=DEFAULT_STARTING_PROMPT) {
- return [{role:'system' as const,content:startingPrompt.replaceAll('{name}',observation.name)},
+ return [{role:'system' as const,content:startingPrompt.replaceAll('{name}',observation.name)+audienceInstruction(observation)},
  {role:'user' as const,content:JSON.stringify(observation)}]
 }
 // Authored walkthrough: invitations, voluntary refusal, a join request, consent,
@@ -73,6 +81,6 @@ export async function chooseModelDecision(model:SocialModel,observation:Observat
  const action=choices[choice].action
  if(action.type!=='say'&&action.type!=='vote')return {...action}
  const instruction=action.type==='say'?'Write one short spoken sentence to your current conversation. Return JSON {"text":"spoken sentence"}.':'Briefly explain your chosen vote. Return JSON {"reason":"short explanation"}.'
- const wording=JSON.parse(await model.generate([{role:'system',content:startingPrompt.replaceAll('{name}',observation.name)+' Your action has already been selected. Do not select a different action. '+instruction},{role:'user',content:JSON.stringify({...observation,selectedAction:action})}],true))
+ const wording=JSON.parse(await model.generate([{role:'system',content:startingPrompt.replaceAll('{name}',observation.name)+' Your action has already been selected. Do not select a different action. '+instruction+(action.type==='say'?audienceInstruction(observation):'')},{role:'user',content:JSON.stringify({...observation,selectedAction:action})}],true))
  return parseDecision(JSON.stringify({...action,text:wording.text,reason:wording.reason}),observation)
 }
