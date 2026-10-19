@@ -61,7 +61,7 @@ instead of discarding memories or substituting a rule action. If an intention
 update hits the limit after speech, that speech stays recorded and play pauses.
 A larger-context model would be needed to exceed its capacity. Keeping everything
 available does not guarantee perfect recall or attention. Longer input increases
-paid usage; the existing private cache and $10 reservation allowance are unchanged.
+paid usage; the existing private cache and reservation ledger are preserved.
 No full paid game or unlimited-context guarantee is claimed.
 
 ## Optional paid model choices
@@ -93,8 +93,10 @@ was $10/M tokens on October19,2026; verify current pricing before use. Identical
 requests are cached. Each uncached request reserves prompt UTF-8 bytes +1,024
 formatting units +96 output units before inference, deliberately conservative.
 
-The persistent allowance is **1,000,000 reserved units**, about **$10 total** at
-that price, not monthly or account-wide. Maximum100 uncached requests/minute;
+The persistent allowance is **5,000,000 reserved units**, conservatively corresponding to the **$50 total task ceiling** at
+that price, not monthly or account-wide. This is a conservative reservation limit,
+not measured billing. The earlier 1,000,000-unit limit was raised on October 19
+when Clark requested unblocking local paid play; previous reservations still count. Maximum100 uncached requests/minute;
 failures retain reservations and storage failures block inference. Private cache
 and ledger live in ignored `.local/state/`. Preserve them across restarts: deleting
 this directory resets the spending guard. No background generation or retries.

@@ -75,3 +75,11 @@ test('editable decision prompts and outside-reviewer prompts are accepted locall
  for(const content of ['Play cautiously, {name}.','You are reviewing a completed fictional social voting game.'])assert.equal(validateDialogue({...data,messages:[{role:'system',content},data.messages[1]]}),true);
  assert.equal(validateDialogue({...data,messages:[{role:'system',content:' '},data.messages[1]]}),false);
 });
+
+test('expanded task allowance preserves prior reservations and permits continued local play',async()=>{
+ const bucket=new MemoryBucket();await bucket.put('island-v1/reservations.json',JSON.stringify({tokens:999636,requests:231,minute:0,minuteRequests:0}));
+ assert.equal(TOKEN_BUDGET,5000000);
+ assert.equal(await reserveBudget(bucket,20000),true);
+ const state=await (await bucket.get('island-v1/reservations.json')).json();
+ assert.equal(state.tokens,1019636);assert.equal(state.requests,232);
+});

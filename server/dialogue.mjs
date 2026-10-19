@@ -2,10 +2,10 @@ import { createRunpodClient, MODEL, MAX_OUTPUT_TOKENS, MAX_REQUEST_BYTES } from 
 
 const encoder = new TextEncoder()
 const BUDGET_KEY = 'island-v1/reservations.json'
-// $10 at the published $10 / million tokens. Count UTF-8 bytes + generous
+// $50 task ceiling at the previously verified $10 / million tokens. Count UTF-8 bytes + generous
 // template overhead as tokens; reserve BEFORE inference and never refund errors.
 // Durable across deploys. Do not reset this object to silently renew the budget.
-export const TOKEN_BUDGET = 1_000_000
+export const TOKEN_BUDGET = 5_000_000
 const RATE_LIMIT = 100
 const jsonResponse = (data, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
 
