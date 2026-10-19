@@ -1,10 +1,10 @@
 import { createRoot } from 'react-dom/client'
+import { useState } from 'react'
+import { SocialDemo } from './SocialDemo'
 import { LiveSurvival } from './LiveSurvival'
+import { ServerLanguageModel } from './serverLanguage'
 import './styles.css'
 import './local.css'
-createRoot(document.getElementById('root')!).render(<main className="local-shell">
-  <header><p className="eyebrow">LOCAL RESEARCH WORKSPACE</p><h1>Island simulator</h1>
-  <p>Only served on this computer. <strong>Play with conversations uses your paid Runpod key.</strong> Silent mode is free. Nothing runs until you press Play.</p>
-  <p><a href="https://github.com/Nova-Rift/island-simulator">Source & setup</a> · <a href="https://clarkwhitehead.com">Free public example</a></p></header>
-  <LiveSurvival />
-</main>)
+const makeModel=()=>new ServerLanguageModel()
+function App(){const [legacy,setLegacy]=useState(false);return <main className="local-shell"><header><p className="eyebrow">LOCAL RESEARCH WORKSPACE</p><h1>Social simulator</h1><p>Private conversations and a vote. Free scripted mode by default; enable local Runpod for agent choices.</p><button onClick={()=>setLegacy(!legacy)}>{legacy?'Back to social game':'Earlier island game'}</button></header>{legacy?<LiveSurvival/>:<SocialDemo makeModel={makeModel}/>}</main>}
+createRoot(document.getElementById('root')!).render(<App/>)
