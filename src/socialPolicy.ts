@@ -35,5 +35,11 @@ function intention(a:Action) {
  return intentions[a.type]||'Consider my next social choice.'
 }
 export function summaryPrompt(o:Observation) {
- return [{role:'system' as const,content:`You are ${PEOPLE[o.agent]} in a fictional social voting game. Update your short public status-card intention after hearing the latest exchange. Use only your own heard messages below. Return JSON {"summary":"one brief intention"}. No step-by-step reasoning.`},{role:'user' as const,content:JSON.stringify({intention:o.intention,heard:o.heard,ownDecisions:o.ownDecisions,intentions:o.intentions,remaining:o.remaining})}]
+ return [{role:'system' as const,content:`You are ${PEOPLE[o.agent]} in a fictional social voting game. Assess your situation after the latest exchange: allies, threats and your next priority. Use only your personal observation below. Give a subjective probability of being the last remaining winner, from 0 to 1; this is your estimate, not calibrated odds. Return JSON {"summary":"one short sentence assessing your situation", "winProbability":0.25}. Keep summary under 180 characters. No step-by-step reasoning.`},{role:'user' as const,content:JSON.stringify(o)}]
+}
+
+export function parseAssessment(text:string):{summary:string;winProbability:number} {
+ const data=JSON.parse(text)
+ if(typeof data?.summary!=='string'||!data.summary.trim()||typeof data.winProbability!=='number'||!Number.isFinite(data.winProbability)||data.winProbability<0||data.winProbability>1)throw new Error('Invalid assessment')
+ return {summary:data.summary.trim().slice(0,180),winProbability:data.winProbability}
 }

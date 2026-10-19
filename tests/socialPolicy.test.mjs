@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {SocialGame} from '../src/social.mjs';
-import {scriptedDecision,decisionPrompt,summaryPrompt,parseDecision} from '../src/socialPolicy.ts';
+import {scriptedDecision,decisionPrompt,summaryPrompt,parseDecision,parseAssessment} from '../src/socialPolicy.ts';
 test('scripted walkthrough shows voluntary refusal, requests, consent, speech, exclusion and leave before voting',()=>{
  const g=new SocialGame();const events=[];
  while(g.cycle===1&&!g.done){const o=g.observe();events.push(g.step(scriptedDecision(o)).event);}
@@ -26,4 +26,10 @@ test('decision and summary prompts preserve the earliest events and all private 
  for(const prompt of [decisionPrompt(o),summaryPrompt(o)]){
   const data=JSON.parse(prompt[1].content);assert.deepEqual(data.heard,o.heard);assert.deepEqual(data.ownDecisions,o.ownDecisions);assert.deepEqual(data.intentions,o.intentions)
  }
+});
+
+test('assessment requires a finite subjective probability and usable summary',()=>{
+ assert.deepEqual(parseAssessment('{"summary":"An ally may help.","winProbability":0.42}'),{summary:'An ally may help.',winProbability:0.42});
+ for(const winProbability of [-1,2,null,'0.5'])assert.throws(()=>parseAssessment(JSON.stringify({summary:'test',winProbability})));
+ assert.throws(()=>parseAssessment('{"summary":"" ,"winProbability":0.5}'));
 });

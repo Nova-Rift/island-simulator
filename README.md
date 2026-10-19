@@ -123,3 +123,20 @@ isolated DOM checks with zero inference; `node --experimental-strip-types
 scripts/check-social-model.mjs` is an explicit four-request PAID local smoke test.
 Neither script takes screenshots. The old island browser checker is for the
 archived game. No telemetry or author's credentials are included.
+
+### Conversation history and assessments
+
+The history panel includes conversations from earlier votes, including closed
+and disbanded groups. Filter by conversation or by who heard an event. It is a
+viewer feature: agents still receive only their personal observations. Reset or
+reload clears the current game's history.
+
+After each spoken exchange, participating agents receive updated situation cards.
+In local paid mode, these include the model's subjective winning estimate (not
+calibrated odds). The card records its conversation and turn and stays visible
+until that agent's next exchange. Invalid responses show unavailable rather than
+inventing a probability. Free scripted mode has no model probability. Local mode
+starts free; enable **Use my local Runpod (paid)** to request live AI choices.
+
+Optional DOM-only verification with mocked model responses (no inference charge):
+`node --experimental-strip-types scripts/check-social-history.mjs http://127.0.0.1:4174/`.

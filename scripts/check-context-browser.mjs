@@ -53,7 +53,7 @@ try {
   assert.match(await evaluate("document.querySelector('.social-state').textContent"),/turn 1$/)
   await click('Play');await delay(1800)
   const state=await evaluate("({turn:document.querySelector('.social-state').textContent,error:document.querySelector('[role=alert]')?.textContent,summary:document.querySelector('.social-summaries p').textContent})")
-  assert.match(state.turn,/turn 1$/);assert.match(state.error,/Paused without removing memories/);assert.equal(state.summary,'Keep the original plan.')
+  assert.match(state.turn,/turn 1$/);assert.match(state.error,/Paused without removing memories/);assert.equal(state.summary,'No conversation assessment yet.')
   await delay(1800);assert.equal(await evaluate('window.contextTestCalls'),2)
   assert.deepEqual(errors,[]);console.log('Context rejection pauses without advancing, losing intention, retrying, or supplying fallback actions.')
 

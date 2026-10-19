@@ -1,18 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { PEOPLE, SocialGame } from './social.mjs'
 import type { Action, SocialFrame } from './social.mjs'
-import { decisionPrompt, parseDecision, scriptedDecision, summaryPrompt } from './socialPolicy'
+import { decisionPrompt, parseDecision, scriptedDecision, summaryPrompt, parseAssessment } from './socialPolicy'
 import type { SocialModel } from './socialPolicy'
 import './social.css'
+
+type Assessment={summary:string;winProbability:number|null;turn:number;cycle:number;group:number|null;source:string}
 
 export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
  const game=useRef(new SocialGame()), model=useRef<SocialModel|null>(null), generation=useRef(0), running=useRef(false)
  const [frame,setFrame]=useState<SocialFrame>(()=>game.current.frame())
  const [playing,setPlaying]=useState(false),[busy,setBusy]=useState(false),[speed,setSpeed]=useState(1)
  const [paid,setPaid]=useState(false),[status,setStatus]=useState('Ready to start.'),[error,setError]=useState('')
+ const [assessments,setAssessments]=useState<Record<number,Assessment>>({})
+ const [historyGroup,setHistoryGroup]=useState('all'),[historyAgent,setHistoryAgent]=useState('all')
  const latest=frame.events.at(-1)
+ const conversations=Array.from(new Set(frame.events.filter(e=>e.group!==null).map(e=>`${e.cycle}:${e.group}`)))
+ const history=frame.events.filter(e=>e.group!==null && (historyGroup==='all'||`${e.cycle}:${e.group}`===historyGroup) && (historyAgent==='all'||e.audience.includes(Number(historyAgent))))
  function pause(){running.current=false;setPlaying(false)}
- function reset(){generation.current++;pause();model.current?.dispose();model.current=null;game.current=new SocialGame();setFrame(game.current.frame());setBusy(false);setError('');setStatus('Ready to start.')}
+ function reset(){generation.current++;pause();model.current?.dispose();model.current=null;game.current=new SocialGame();setFrame(game.current.frame());setBusy(false);setError('');setStatus('Ready to start.');setAssessments({});setHistoryGroup('all');setHistoryAgent('all')}
  useEffect(()=>()=>{generation.current++;model.current?.dispose()},[])
  async function advance(){
   if(busy||game.current.done)return
@@ -32,12 +38,15 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    setStatus(result.event.type==='say'?`${PEOPLE[actor]} is speaking to their group.`:result.event.text)
    if(result.event.type==='say'){
     await Promise.all([actor,...result.listeners].map(async listener=>{
-     let summary='Listen to this group and decide who to support at the vote.'
+     let assessment:Assessment={summary:'I am discussing the vote with this group; their support is not guaranteed.',winProbability:null,turn:result.event.turn,cycle:result.event.cycle,group:result.event.group,source:paid?'AI self-assessment':'Scripted example'}
      if(paid){
-      try{const data=JSON.parse(await model.current!.generate(summaryPrompt(g.observe(listener)),true));if(typeof data.summary!=='string'||!data.summary.trim())throw Error();summary=data.summary}
-      catch(e){if((e as {code?:string})?.code==='CONTEXT_LIMIT')throw e;if(active())g.setSummary(listener,'Summary unavailable for this exchange.');return}
+      try{assessment={...assessment,...parseAssessment(await model.current!.generate(summaryPrompt(g.observe(listener)),true))}}
+      catch(e){if((e as {code?:string})?.code==='CONTEXT_LIMIT')throw e;assessment={...assessment,summary:'Assessment unavailable for this exchange.',source:'Unavailable'}}
      }
-     if(active())g.setSummary(listener,summary)
+     if(active()){
+      g.setSummary(listener,assessment.summary)
+      setAssessments(previous=>({...previous,[listener]:assessment}))
+     }
     }))
     if(!active())return
     setFrame(g.frame())
@@ -87,7 +96,25 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    {alone.length>0&&<section className="social-group social-alone" aria-label="Agents on their own"><h3>On their own<small>Participation is optional</small></h3><div className="social-people">{alone.map(i=>person(i,null))}</div></section>}
   </div>
   <p className="social-viewer">You can see every group. Agents only hear conversations they have joined.</p>
-  <div className="social-summaries" aria-label="Agent intentions">{PEOPLE.map((name,i)=><article key={name} className={frame.alive[i]?'':'is-out'}><strong>{name}{frame.alive[i]?'':' · voted out'}</strong><p>{frame.summaries[i]}</p></article>)}</div>
+  <div className="social-summaries" aria-label="Latest conversation assessments">{PEOPLE.map((name,i)=>{
+   const assessment=assessments[i]
+   return <article key={name} className={frame.alive[i]?'':'is-out'}><strong>{name}{frame.alive[i]?'':' · voted out'}</strong>
+    <p>{assessment?.summary||'No conversation assessment yet.'}</p>
+    <p className="social-odds">{frame.phase==='finished'&&frame.winner===i?'Winner':!frame.alive[i]?'Eliminated · winning chance 0%':assessment?.winProbability!=null?`Own estimate of winning: ${Math.round(assessment.winProbability*100)}%`:'Winning estimate: unavailable'}</p>
+    {assessment&&<small>{assessment.source} · vote {assessment.cycle}, turn {assessment.turn} · conversation {assessment.group}</small>}
+   </article>
+  })}</div>
+  <p className="social-viewer">Assessments update for everyone who hears an exchange. AI estimates are subjective, not measured odds.</p>
+  <details className="social-history" open><summary>Conversation history · {frame.events.filter(e=>e.type==='say').length} messages</summary>
+   <div className="social-controls">
+    <label>Conversation <select value={historyGroup} onChange={e=>setHistoryGroup(e.target.value)}><option value="all">All conversations</option>{conversations.map(key=><option key={key} value={key}>Vote {key.split(':')[0]} · conversation {key.split(':')[1]}</option>)}</select></label>
+    <label>Heard by <select value={historyAgent} onChange={e=>setHistoryAgent(e.target.value)}><option value="all">Everyone (viewer)</option>{PEOPLE.map((name,i)=><option key={name} value={i}>{name}</option>)}</select></label>
+   </div>
+   <div className="social-transcript" role="region" aria-label="Conversation transcript" tabIndex={0}>
+    {history.length===0?<p>No conversation activity yet.</p>:history.map(e=><article key={e.turn} className={e.type==='say'?'is-speech':''}><small>Vote {e.cycle} · round {e.round} · turn {e.turn} · conversation {e.group}</small><p>{e.type==='say'&&<strong>{PEOPLE[e.actor]}: </strong>}{e.text}</p>{e.type==='say'&&<small>Heard by {e.audience.map(i=>PEOPLE[i]).join(', ')}</small>}</article>)}
+   </div>
+   <p className="social-viewer">Earlier conversations stay here across votes, even after a group closes. Reset or reload clears this game.</p>
+  </details>
   {frame.councils.length>0&&<div className="social-results">{frame.councils.slice().reverse().map(c=><details key={c.number} open={c.number===frame.councils.length}><summary>Vote {c.number}: {PEOPLE[c.eliminated]} leaves{c.tied?' (seeded tie-break)':''}</summary><ul>{c.ballots.map(v=><li key={v.voter}>{PEOPLE[v.voter]} → {PEOPLE[v.target]} <small>{v.source==='llm'?'AI choice':v.source==='fallback'?'Rule fallback':'Scripted choice'}</small></li>)}</ul></details>)}</div>}
   <details className="social-rules"><summary>How it works</summary><p>Invite someone or ask to join. Invitations can be declined; join requests need all current members to agree. Anyone can stay silent or leave. Removing someone requires a majority of the other members and at least two supporters. Excluded agents cannot rejoin that conversation. New members cannot hear earlier messages.</p><p>After four rounds, every remaining agent votes for someone else. Most votes eliminates one; a seeded draw breaks ties. Groups reset after each vote. Last agent standing gets +1; everyone else gets 0. This is a simplified social game, not a model of real human behavior.</p><p><a href="https://github.com/Nova-Rift/island-simulator">Run locally / source</a> · <a href="https://github.com/Nova-Rift/survival-env/blob/browser-environment/browser/SOCIAL.md">Environment API</a>{!makeModel&&<> · <a href="/simulations/">Earlier simulations</a></>}</p></details>
  </section>
