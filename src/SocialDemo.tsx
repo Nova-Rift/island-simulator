@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { PEOPLE, SocialGame } from './social.mjs'
 import type { Action, SocialFrame, Event } from './social.mjs'
-import { decisionPrompt, parseDecision, scriptedDecision, summaryPrompt, parseAssessment, DEFAULT_STARTING_PROMPT } from './socialPolicy'
+import { decisionPrompt, parseDecision, scriptedDecision, summaryPrompt, parseAssessment, DEFAULT_STARTING_PROMPT, gameReviewPrompt } from './socialPolicy'
 import type { SocialModel } from './socialPolicy'
 import './social.css'
 
@@ -15,12 +15,34 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
  const [assessments,setAssessments]=useState<Record<number,Assessment>>({})
  const [historyGroup,setHistoryGroup]=useState('all'),[historyAgent,setHistoryAgent]=useState('all')
  const [startingPrompt,setStartingPrompt]=useState(DEFAULT_STARTING_PROMPT)
+ const [reviews,setReviews]=useState<Record<number,string>>({}),[reviewErrors,setReviewErrors]=useState<Record<number,string>>({}),[reviewing,setReviewing]=useState(false)
+ const reviewBusy=useRef(false)
  const latest=frame.events.at(-1)
  const conversations=Array.from(new Set(frame.events.filter(e=>e.group!==null).map(e=>`${e.cycle}:${e.group}`)))
  const history=frame.events.filter(e=>e.group!==null && (historyGroup==='all'||`${e.cycle}:${e.group}`===historyGroup) && (historyAgent==='all'||e.audience.includes(Number(historyAgent))))
  function pause(){running.current=false;setPlaying(false)}
- function reset(){generation.current++;pause();model.current?.dispose();model.current=null;game.current=new SocialGame();setFrame(game.current.frame());setBusy(false);setError('');setStatus('Ready to start.');setAssessments({});setHistoryGroup('all');setHistoryAgent('all')}
+ function reset(){generation.current++;pause();model.current?.dispose();model.current=null;game.current=new SocialGame();setFrame(game.current.frame());setBusy(false);setError('');setStatus('Ready to start.');setAssessments({});setHistoryGroup('all');setHistoryAgent('all');setReviews({});setReviewErrors({});setReviewing(false);reviewBusy.current=false}
  useEffect(()=>()=>{generation.current++;model.current?.dispose()},[])
+ async function reviewGame(finalFrame:SocialFrame){
+  if(!makeModel||finalFrame.phase!=='finished'||reviewBusy.current)return
+  const id=generation.current,active=()=>generation.current===id
+  reviewBusy.current=true;setReviewing(true);setReviewErrors({})
+  try{
+   if(!model.current){model.current=makeModel();await model.current.load()}
+   if(!active())return
+   const reviewer=model.current
+   for(let agent=0;agent<PEOPLE.length;agent++){
+    if(!active())return
+    if(reviews[agent])continue
+    try{
+     const data=JSON.parse(await reviewer.generate(gameReviewPrompt(finalFrame,agent),true))
+     if(typeof data.summary!=='string'||!data.summary.trim())throw new Error('Invalid recap')
+     if(active())setReviews(previous=>({...previous,[agent]:data.summary.trim().slice(0,500)}))
+    }catch(e){if(active())setReviewErrors(previous=>({...previous,[agent]:(e as {code?:string})?.code==='CONTEXT_LIMIT'?'Full game record could not fit; no history was trimmed.':'Review unavailable. You can retry.'}))}
+   }
+  }catch{if(active())setReviewErrors({0:'Could not connect to the local model. You can retry.'})}
+  finally{if(active()){reviewBusy.current=false;setReviewing(false)}}
+ }
  async function advance(){
   if(busy||game.current.done||!startingPrompt.trim())return
   const id=generation.current,g=game.current,active=()=>generation.current===id
@@ -52,7 +74,7 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
     if(!active())return
     setFrame(g.frame())
    }
-   if(g.done)pause()
+   if(g.done){pause();if(paid)await reviewGame(g.frame())}
   }catch(e){if(active()){pause();model.current?.dispose();model.current=null;setError((e as {code?:string})?.code==='CONTEXT_LIMIT'?'Full personal history could not be accepted. Paused without removing memories. A larger-context model is needed to continue if the model limit was reached.':'Local Runpod is unavailable. Check the local server or switch off paid conversations.')}}
   finally{if(active())setBusy(false)}
  }
@@ -125,6 +147,13 @@ export function SocialDemo({makeModel}:{makeModel?:()=>SocialModel}) {
    <p className="social-viewer">Earlier conversations stay here across votes, even after a group closes. Reset or reload clears this game.</p>
   </details>
   {frame.councils.length>0&&<div className="social-results">{frame.councils.slice().reverse().map(c=><details key={c.number} open={c.number===frame.councils.length}><summary>Vote {c.number}: {PEOPLE[c.eliminated]} leaves{c.tied?' (seeded tie-break)':''}</summary><ul>{c.ballots.map(v=><li key={v.voter}>{PEOPLE[v.voter]} → {PEOPLE[v.target]} <small>{v.source==='llm'?'AI choice':v.source==='fallback'?'Rule fallback':'Scripted choice'}</small></li>)}</ul></details>)}</div>}
+  {frame.phase==='finished'&&<section className="social-review" aria-labelledby="game-review-title">
+   <h3 id="game-review-title">Game recap</h3>
+   <p>An outside observer reviews the full transcript and votes. Explanations of motives are interpretations.</p>
+   {reviewing&&<p role="status">Reviewing each player’s game…</p>}
+   <div className="social-summaries">{PEOPLE.map((name,i)=><article key={name}><strong>{name}{frame.winner===i?' · winner':''}</strong><p>{reviews[i]||reviewErrors[i]||(reviewing?'Waiting for review…':'Not reviewed yet.')}</p></article>)}</div>
+   {makeModel&&!reviewing&&Object.keys(reviews).length<PEOPLE.length&&<button onClick={()=>void reviewGame(frame)}>{Object.keys(reviewErrors).length?'Retry missing reviews (paid)':'Generate AI recap (paid)'}</button>}
+  </section>}
   <details className="social-rules"><summary>How it works</summary><p>Invite someone or ask to join. Invitations can be declined; join requests need all current members to agree. Anyone can stay silent or leave. Removing someone requires a majority of the other members and at least two supporters. Excluded agents cannot rejoin that conversation. New members cannot hear earlier messages.</p><p>After four rounds, every remaining agent votes for someone else. Most votes eliminates one; a seeded draw breaks ties. Groups reset after each vote. Last agent standing gets +1; everyone else gets 0. This is a simplified social game, not a model of real human behavior.</p><p><a href="https://github.com/Nova-Rift/island-simulator">Run locally / source</a> · <a href="https://github.com/Nova-Rift/survival-env/blob/browser-environment/browser/SOCIAL.md">Environment API</a>{!makeModel&&<> · <a href="/simulations/">Earlier simulations</a></>}</p></details>
  </section>
 }

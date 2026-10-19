@@ -163,3 +163,14 @@ are absent from model observations. Agents can discover a conversation through
 an invitation or someone mentioning “conversation N” while talking. Such reports
 remain attributed, unverified speech; the default prompt allows asking questions,
 refusing disclosure, telling the truth or lying. The viewer can still see all groups.
+
+### End-of-game AI recap
+
+When a paid game finishes, an outside model reviewer receives the complete event
+transcript, council ballots (including recorded reasons), final state and winner.
+It writes one brief recap per player, distinguishing evidence from interpretation
+and treating dialogue as potentially deceptive. These are eight bounded model
+requests through the same local budget/cache, not additional player knowledge.
+Scripted games offer an explicit **Generate AI recap (paid)** button instead of
+charging automatically. Failed recaps can be retried without regenerating completed
+cards. Reset discards pending results. Context overflow never trims the record.

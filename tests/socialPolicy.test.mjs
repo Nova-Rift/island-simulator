@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {SocialGame} from '../src/social.mjs';
-import {scriptedDecision,decisionPrompt,summaryPrompt,parseDecision,parseAssessment} from '../src/socialPolicy.ts';
+import {scriptedDecision,decisionPrompt,summaryPrompt,parseDecision,parseAssessment,gameReviewPrompt} from '../src/socialPolicy.ts';
 test('scripted walkthrough shows voluntary refusal, requests, consent, speech and leave before voting',()=>{
  const g=new SocialGame();const events=[];
  while(g.cycle===1&&!g.done){const o=g.observe();events.push(g.step(scriptedDecision(o)).event);}
@@ -31,4 +31,12 @@ test('assessment requires a finite subjective probability and usable summary',()
  assert.deepEqual(parseAssessment('{"summary":"An ally may help.","winProbability":0.42}'),{summary:'An ally may help.',winProbability:0.42});
  for(const winProbability of [-1,2,null,'0.5'])assert.throws(()=>parseAssessment(JSON.stringify({summary:'test',winProbability})));
  assert.throws(()=>parseAssessment('{"summary":"" ,"winProbability":0.5}'));
+});
+
+test('post-game reviewer receives every event and ballot only after completion',()=>{
+ const g=new SocialGame();assert.throws(()=>gameReviewPrompt(g.frame(),0));
+ while(!g.done)g.step(scriptedDecision(g.observe()));
+ const frame=g.frame(),payload=JSON.parse(gameReviewPrompt(frame,3)[1].content);
+ assert.deepEqual(payload.game,frame);assert.equal(payload.player,3);
+ assert.equal(payload.game.councils.length,7);assert.ok(payload.game.events.length>100);
 });

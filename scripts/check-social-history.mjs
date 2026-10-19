@@ -83,6 +83,21 @@ try {
   assert.ok(await evaluate("document.querySelector('.social-history select').options.length>4"))
   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true})
   assert.ok(await evaluate('document.documentElement.scrollWidth<=window.innerWidth'))
+  for(let turns=0;turns<200;turns++){
+   if(await evaluate("!!document.querySelector('#game-review-title')"))break
+   await click('Next turn');await delay(25)
+  }
+  assert.ok(await evaluate("!!document.querySelector('#game-review-title')"))
+  assert.equal(await evaluate("document.querySelectorAll('.social-review .social-summaries article').length"),8)
+  await evaluate(`window.reviewCalls=0;window.fetch=async(url,options)=>{
+   if(url==='/api/island/status')return Response.json({ready:true});
+   const input=JSON.parse(options.body),payload=JSON.parse(input.messages[1].content);
+   if(payload.game.phase!=='finished'||payload.game.events.length<100||payload.game.councils.length!==7)throw Error('Incomplete review evidence');
+   window.reviewCalls++;return Response.json({text:JSON.stringify({summary:'A short evidence-based recap for player '+payload.player})})
+  }`)
+  await click('Generate AI recap (paid)');await delay(400)
+  assert.equal(await evaluate('window.reviewCalls'),8)
+  assert.equal(await evaluate("Array.from(document.querySelectorAll('.social-review article p')).filter(p=>p.textContent.includes('evidence-based recap')).length"),8)
   assert.deepEqual(errors,[]);console.log('History survives councils; audience filtering, mock AI assessments, reset and mobile width pass. No paid inference.')
 
 } finally {
